@@ -1,0 +1,37 @@
+# OTS — On Time Shipment (klient: 3ME)
+
+Frontend + logika liczenia wskaźnika OTS, na razie bez backendu — zapisane oceny
+linii ("kod przyczyny" + "wina") trzymane są w `localStorage` przeglądarki
+(`js/reviewsStore.js`). Docelowo tylko ta jedna warstwa zostanie podmieniona na
+wywołania do backendu.
+
+## Uruchomienie
+
+Aplikacja używa modułów ES (`<script type="module">`), więc **nie da się** jej
+otworzyć bezpośrednio z dysku (`file://`) — przeglądarki blokują import
+modułów przez CORS. Trzeba odpalić lokalny serwer statyczny, np.:
+
+- VSCode: rozszerzenie **Live Server** → prawy klik na `index.html` → "Open with Live Server"
+- albo w terminalu: `npx serve .` lub `python -m http.server`
+
+## Struktura
+
+- `index.html`, `css/styles.css` — UI (dashboard + panel „Opóźnione linie")
+- `js/clients/3me.js` — reguły specyficzne dla klienta (grupy przewoźników, kraje UE, reason code'y, target)
+- `js/csvParser.js` — wczytanie i sparsowanie pliku CSV (windows-1250, `;`)
+- `js/calcEngine.js` — logika 1:1 z Power Query/DAX: `AdjustedExpectedDate` → `DELAY_STATUS` → region → KPI (Gross/Net)
+- `js/reviewsStore.js` — zapis ocenionych linii (dziś: localStorage)
+- `js/ui/` — renderowanie dashboardu, panelu opóźnionych linii i gauge'ów
+- `data/` — przykładowe pliki OBD do testów lokalnych (w `.gitignore`, nigdy nie trafiają do repo)
+
+## Do potwierdzenia na realnych danych
+
+- `domesticCountryCode: '060'` w `js/clients/3me.js` — wartość wzięta wprost z formuły DAX
+  (`country <> "060"`), ale w przykładowym pliku nie było wiersza z Polski, więc nie dało się
+  jej zweryfikować. Porównanie zaimplementowane jest liczbowo (`Number(...) === Number(...)`),
+  więc różnice w zapisie (`"60"` vs `"060"`) nie powinny mieć znaczenia — ale sama wartość kodu
+  wymaga potwierdzenia na pliku z polskimi wierszami.
+- `data/przyklad_3ME_OBD.csv` w tym repo jest zapisany jako UTF-8 (wklejony w rozmowie), a docelowy
+  plik z SharePointa jest w windows-1250 — do testowania logiki liczenia to nie ma znaczenia
+  (kolumny użyte w obliczeniach są czysto ASCII), ale nazwy miast/firm w tym konkretnym pliku
+  będą wyglądać źle. Do testu samego dekodowania encodingu potrzebny jest prawdziwy eksport z WMS.

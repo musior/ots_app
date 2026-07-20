@@ -1,0 +1,9 @@
+# Real / sample OBD exports - never commit real shipment & customer data
+/data/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Editor
+*.code-workspace

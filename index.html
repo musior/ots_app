@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OTS · On Time Shipment — 3ME</title>
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="rail-mark">OTS</div>
+    <nav class="rail-nav" aria-label="Klienci">
+      <button class="rail-btn" aria-current="true" title="3ME">3ME</button>
+      <button class="rail-btn" disabled title="Solventum — wkrótce">SLV</button>
+    </nav>
+    <div class="rail-spacer"></div>
+    <button class="rail-theme" id="themeToggle" title="Przełącz motyw">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"/></svg>
+    </button>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="titleblock">
+        <div class="eyebrow">Logistyka / Wysyłki · raport OBD</div>
+        <h1>On Time Shipment — <span id="titleName">3ME</span></h1>
+      </div>
+      <div class="topbar-controls">
+        <div class="import-box">
+          <input type="file" id="csvInput" accept=".csv" hidden />
+          <button class="btn btn--primary" id="importBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+            Importuj raport OBD (CSV)
+          </button>
+          <span class="import-status" id="importStatus">Brak zaimportowanych danych</span>
+        </div>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-tab="dashboard">Dashboard</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="delayed">Opóźnione linie <span class="badge" id="tabBadge">0</span></button>
+    </nav>
+
+    <section class="view" id="view-dashboard">
+      <div class="grid-kpi">
+        <div class="card kpi">
+          <div class="gauge-wrap" id="gaugeGross" style="width:118px"></div>
+          <div class="kpi-text">
+            <div class="eyebrow">OTS Total Gross</div>
+            <div class="value num" id="valueGross">—</div>
+            <div class="sub" id="subGross"></div>
+          </div>
+        </div>
+        <div class="card kpi">
+          <div class="gauge-wrap" id="gaugeNet" style="width:118px"></div>
+          <div class="kpi-text">
+            <div class="eyebrow">OTS Total Net</div>
+            <div class="value num" id="valueNet">—</div>
+            <div class="sub" id="subNet"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-region">
+        <div class="card region">
+          <div class="eyebrow">PL</div>
+          <div class="gauge-wrap" id="gaugePL" style="width:150px;margin:2px auto"></div>
+          <div class="value num" id="valuePL">—</div>
+          <div class="target">cel <span class="num">98,50%</span></div>
+        </div>
+        <div class="card region">
+          <div class="eyebrow">EU</div>
+          <div class="gauge-wrap" id="gaugeEU" style="width:150px;margin:2px auto"></div>
+          <div class="value num" id="valueEU">—</div>
+          <div class="target">cel <span class="num">98,50%</span></div>
+        </div>
+        <div class="card region">
+          <div class="eyebrow">NON EU</div>
+          <div class="gauge-wrap" id="gaugeNONEU" style="width:150px;margin:2px auto"></div>
+          <div class="value num" id="valueNONEU">—</div>
+          <div class="target">cel <span class="num">98,50%</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Wynik wg kraju</h2>
+          <span class="hint" id="countryHint"></span>
+        </div>
+        <div class="table-wrap scroll-y">
+          <table>
+            <thead>
+              <tr><th>Kraj</th><th class="num">Total</th><th class="num">On&nbsp;time</th><th class="num">Do&nbsp;wyjaśnienia</th><th class="num">%OTS</th></tr>
+            </thead>
+            <tbody id="countryTable"></tbody>
+          </table>
+        </div>
+        <div class="legend-row">
+          <span><i style="background:var(--good)"></i>≥ 98,5%</span>
+          <span><i style="background:var(--warning)"></i>95–98,5%</span>
+          <span><i style="background:var(--critical)"></i>&lt; 95%</span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="card-head">
+          <h2>Rozkład wg kodu przyczyny</h2>
+          <span class="hint">na podstawie uzupełnionych linii</span>
+        </div>
+        <div class="table-wrap" style="padding-bottom:14px">
+          <table>
+            <thead><tr><th>Kod przyczyny</th><th class="num">Magazyn</th><th class="num">Klient</th><th class="num">Razem</th></tr></thead>
+            <tbody id="reasonTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-delayed" hidden>
+      <div class="callout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+        <div>
+          Linie poniżej to te, dla których algorytm nie zwrócił statusu <b>OK</b>. Uzupełnij <b>kod przyczyny</b> i wskaż <b>Magazyn / Klient</b> — linie oznaczone jako „Klient” podnoszą <b>OTS Net</b>.
+        </div>
+      </div>
+
+      <div class="stat-row">
+        <div class="stat stat--pending">
+          <div><div class="n num" id="statPending">0</div><div class="l">Do uzupełnienia</div></div>
+          <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
+        </div>
+        <div class="stat stat--done">
+          <div><div class="n num" id="statDone">0</div><div class="l">Uzupełnione</div></div>
+          <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12.5l5 5L20 6.5"/></svg></div>
+        </div>
+        <div class="stat stat--total">
+          <div><div class="n num" id="statTotal">0</div><div class="l">Łącznie linii do wyjaśnienia</div></div>
+          <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M3 12h18M3 18h11"/></svg></div>
+        </div>
+      </div>
+
+      <div class="filter-bar">
+        <select id="filterKraj"><option value="">Wszystkie kraje</option></select>
+        <select id="filterStatus">
+          <option value="">Wszystkie statusy</option>
+          <option value="pending">Do uzupełnienia</option>
+          <option value="done">Uzupełnione</option>
+        </select>
+        <input type="text" id="filterSearch" placeholder="Szukaj po WMS_ORDER lub OBD…" style="min-width:220px" />
+        <div class="spacer"></div>
+        <span class="count"><span id="visibleCount">0</span> z <span id="totalCount">0</span></span>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table class="dl-table">
+            <thead>
+              <tr>
+                <th>Kraj</th><th>WMS Order</th><th>OBD</th><th class="num">Linia</th><th class="num">Ilość</th>
+                <th>Status algorytmu</th><th style="min-width:190px">Kod przyczyny</th><th>Wina</th><th>Status</th><th style="width:96px">Akcja</th>
+              </tr>
+            </thead>
+            <tbody id="delayedTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
