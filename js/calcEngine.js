@@ -1,4 +1,4 @@
-import { addDays, mondayIndexedDayOfWeek } from './dateUtils.js';
+import { addDays, mondayIndexedDayOfWeek, isSameDay } from './dateUtils.js';
 
 // --- Krok 1: AdjustedExpectedDate -----------------------------------------
 // Replika 1:1 kroku "Dodano kolumnę AdjustedExpectedDate" z Power Query.
@@ -153,4 +153,21 @@ export function calculateReasonBreakdown(lines, reviewsByLineId) {
 // do panelu "Opóźnione linie" (wszystko poza DELAY_STATUS === "OK").
 export function linesNeedingReview(lines) {
   return lines.filter((l) => l.delayStatus !== 'OK');
+}
+
+// --- Filtr daty na dashboardzie ---------------------------------------------
+// Ważne: filtrujemy po AdjustedExpectedDate (data po korekcie przewoźnika/weekendu),
+// NIE po surowym EXPECTED_SHIP_DATE z pliku — tak jak w Power BI.
+export function filterByAdjustedDate(lines, date) {
+  if (!date) return lines;
+  return lines.filter((l) => isSameDay(l.adjustedExpectedDate, date));
+}
+
+// Zakres dostępnych dat (po AdjustedExpectedDate) w aktualnie zaimportowanym pliku —
+// używane do ograniczenia inputa z datą i podpowiedzi w UI.
+export function adjustedDateRange(lines) {
+  const dates = lines.map((l) => l.adjustedExpectedDate).filter(Boolean);
+  if (dates.length === 0) return null;
+  const timestamps = dates.map((d) => d.getTime());
+  return { min: new Date(Math.min(...timestamps)), max: new Date(Math.max(...timestamps)) };
 }

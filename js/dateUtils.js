@@ -38,3 +38,23 @@ export function formatDatePl(date) {
 export function formatPercent(value) {
   return (value * 100).toFixed(2).replace('.', ',') + '%';
 }
+
+export function isSameDay(a, b) {
+  if (!a || !b) return false;
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+// Konwersja do/z formatu, jakiego oczekuje <input type="date"> ("YYYY-MM-DD").
+export function toDateInputValue(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function fromDateInputValue(value) {
+  if (!value) return null;
+  const [y, m, d] = value.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
