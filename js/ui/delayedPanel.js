@@ -1,7 +1,7 @@
-import { linesNeedingReview } from '../calcEngine.js';
+import { groupNeedingReviewByObd } from '../calcEngine.js';
 import * as reviewsStore from '../reviewsStore.js';
 
-let currentLines = [];
+let currentGroups = [];
 let currentConfig = null;
 let currentClientId = null;
 let onChangeCallback = null;
@@ -19,23 +19,24 @@ function reasonOptionsHtml(selected) {
   return html;
 }
 
-function buildRow(line) {
-  const existing = reviewsStore.getReview(currentClientId, line.lineId);
+// Wiersz reprezentuje jeden OBD (może obejmować kilka linii/OBD_LINE) —
+// ocena (kod przyczyny + wina) dotyczy całego OBD naraz.
+function buildRow(group) {
+  const existing = reviewsStore.getReview(currentClientId, group.obd);
   const saved = !!(existing && existing.reasonCode && existing.faultOwner);
 
   const tr = document.createElement('tr');
-  tr.dataset.kraj = line.NAME_COUNTRY || '';
+  tr.dataset.kraj = group.country || '';
   tr.dataset.status = saved ? 'done' : 'pending';
-  tr.dataset.search = `${line.WMS_ORDER || ''} ${line.OBD || ''}`.toLowerCase();
+  tr.dataset.search = `${group.wmsOrder || ''} ${group.obd || ''}`.toLowerCase();
 
-  const status = statusLabel(line.delayStatus);
+  const status = statusLabel(group.delayStatus);
 
   tr.innerHTML = `
-    <td class="kraj">${line.NAME_COUNTRY || '—'}</td>
-    <td class="num">${line.WMS_ORDER || '—'}</td>
-    <td class="num">${line.OBD || '—'}</td>
-    <td class="num">${line.OBD_LINE ?? '—'}</td>
-    <td class="num">${line.OBD_QTY ?? '—'}</td>
+    <td class="kraj">${group.country || '—'}</td>
+    <td class="num">${group.wmsOrder || '—'}</td>
+    <td class="num">${group.obd || '—'}</td>
+    <td class="num">${group.lineCount}</td>
     <td><span class="chip algo-badge algo-badge--${status.cls}"><i class="dot"></i>${status.text}</span></td>
     <td><select class="reason">${reasonOptionsHtml(existing?.reasonCode)}</select></td>
     <td><div class="owner-toggle" data-locked="${saved}">
@@ -81,7 +82,7 @@ function buildRow(line) {
   saveBtn.addEventListener('click', () => {
     const owner = tr.querySelector('.owner-btn[aria-pressed="true"]')?.dataset.owner;
     if (!select.value || !owner) return;
-    const savedReview = reviewsStore.saveReview(currentClientId, line.lineId, {
+    const savedReview = reviewsStore.saveReview(currentClientId, group.obd, {
       reasonCode: select.value,
       faultOwner: owner,
     });
@@ -94,7 +95,7 @@ function buildRow(line) {
     const meta = document.createElement('div');
     meta.className = 'row-meta';
     meta.textContent = `${savedReview.reviewedBy} · ${new Date(savedReview.reviewedAt).toLocaleString('pl-PL')}`;
-    tr.children[8].appendChild(meta);
+    tr.children[7].appendChild(meta);
     saveBtn.style.display = 'none';
     editBtn.style.display = '';
     onChangeCallback?.();
@@ -104,14 +105,14 @@ function buildRow(line) {
     // Celowo NIE kasujemy tu zapisu w reviewsStore — dopóki ktoś nie kliknie
     // "Zapisz" ponownie, poprzednia klasyfikacja zostaje w bazie. Inaczej
     // pełny re-render panelu (wywoływany po zapisaniu innego wiersza) mógłby
-    // bezpowrotnie skasować w połowie edytowaną linię.
+    // bezpowrotnie skasować w połowie edytowany OBD.
     select.disabled = false;
     ownerBtns.forEach((b) => (b.disabled = false));
     ownerToggle.dataset.locked = 'false';
     tr.dataset.status = 'pending';
     chip.className = 'chip chip--pending';
     chip.innerHTML = '<i class="dot"></i>Do uzupełnienia';
-    const meta = tr.children[8].querySelector('.row-meta');
+    const meta = tr.children[7].querySelector('.row-meta');
     if (meta) meta.remove();
     editBtn.style.display = 'none';
     saveBtn.style.display = '';
@@ -154,19 +155,19 @@ function updateStats() {
 }
 
 export function renderDelayedPanel({ lines, config, clientId, onChange }) {
-  currentLines = linesNeedingReview(lines);
+  currentGroups = groupNeedingReviewByObd(lines);
   currentConfig = config;
   currentClientId = clientId;
   onChangeCallback = onChange;
 
   const tbody = document.getElementById('delayedTable');
   tbody.innerHTML = '';
-  for (const line of currentLines) {
-    tbody.appendChild(buildRow(line));
+  for (const group of currentGroups) {
+    tbody.appendChild(buildRow(group));
   }
 
   const krajSelect = document.getElementById('filterKraj');
-  const countries = [...new Set(currentLines.map((l) => l.NAME_COUNTRY).filter(Boolean))].sort();
+  const countries = [...new Set(currentGroups.map((g) => g.country).filter(Boolean))].sort();
   krajSelect.innerHTML = '<option value="">Wszystkie kraje</option>' + countries.map((c) => `<option>${c}</option>`).join('');
 
   updateStats();

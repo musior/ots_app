@@ -14,7 +14,7 @@ let enrichedLines = [];
 // surowym EXPECTED_SHIP_DATE — patrz calcEngine.filterByAdjustedDate.
 let selectedDate = addDays(startOfToday(), -1);
 
-function reviewsByLineId() {
+function reviewsByObd() {
   return reviewsStore.getAllReviews(clientId);
 }
 
@@ -24,7 +24,7 @@ function visibleLines() {
 
 function renderAll() {
   const lines = visibleLines();
-  renderDashboard({ lines, reviewsByLineId: reviewsByLineId(), config });
+  renderDashboard({ lines, reviewsByObd: reviewsByObd(), config });
   renderDelayedPanel({ lines, config, clientId, onChange: renderAll });
   updateDateFilterHint(lines.length);
 }

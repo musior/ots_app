@@ -90,21 +90,29 @@ export function calculateGross(lines) {
   return onTime / total;
 }
 
-// reviewsByLineId: { [lineId]: { reasonCode, faultOwner, reviewedBy, reviewedAt } }
-export function calculateKpis(lines, reviewsByLineId, config) {
+// reviewsByObd: { [OBD]: { reasonCode, faultOwner, reviewedBy, reviewedAt } }
+// Ocena (reason code + wina) jest przypisywana per OBD, nie per pojedynczy wiersz
+// (OBD_LINE) — jeden OBD może mieć kilka linii, ale to jedna decyzja na cały OBD.
+export function calculateKpis(lines, reviewsByObd, config) {
   const total = lines.length;
   const onTime = lines.filter((l) => l.delayStatus === 'OK').length;
   const gross = total === 0 ? 0 : onTime / total;
 
-  // Suma_OBD_Line: dla linii ocenionych jako "Klient" (Opóźnienie ujęte w OTS = Nie)
-  // sumujemy wartość OBD_LINE — dosłownie jak w Power BI, nie liczbę linii.
-  const sumaObdLine = lines.reduce((sum, line) => {
-    const review = reviewsByLineId[line.lineId];
+  // Suma_OBD_Line: dla OBD ocenionych jako "Klient" (Opóźnienie ujęte w OTS = Nie)
+  // doliczamy do licznika Net liczbę wierszy (linii), jakie ten OBD reprezentuje —
+  // nie sumę wartości w kolumnie OBD_LINE, tylko faktyczną liczbę wierszy.
+  const lineCountByObd = new Map();
+  for (const line of lines) {
+    lineCountByObd.set(line.OBD, (lineCountByObd.get(line.OBD) || 0) + 1);
+  }
+
+  let sumaObdLine = 0;
+  for (const [obd, count] of lineCountByObd) {
+    const review = reviewsByObd[obd];
     if (review && review.faultOwner === 'klient' && config.reasonCodes.includes(review.reasonCode)) {
-      return sum + (Number(line.OBD_LINE) || 0);
+      sumaObdLine += count;
     }
-    return sum;
-  }, 0);
+  }
 
   const net = total === 0 ? 0 : (onTime + sumaObdLine) / total;
 
@@ -132,17 +140,20 @@ export function calculateCountryBreakdown(lines) {
 }
 
 // --- Rozbicie wg reason code (na podstawie zapisanych recenzji) ------------
-export function calculateReasonBreakdown(lines, reviewsByLineId) {
+// Liczy w liniach (wierszach), nie w OBD — jeden oceniony OBD z 4 liniami
+// wnosi 4 do sumy, tak samo jak wchodzi do Suma_OBD_Line w KPI.
+export function calculateReasonBreakdown(lines, reviewsByObd) {
+  const groups = groupNeedingReviewByObd(lines);
   const map = new Map();
-  for (const line of lines) {
-    const review = reviewsByLineId[line.lineId];
+  for (const group of groups) {
+    const review = reviewsByObd[group.obd];
     if (!review || !review.reasonCode) continue;
     if (!map.has(review.reasonCode)) {
       map.set(review.reasonCode, { reasonCode: review.reasonCode, magazyn: 0, klient: 0 });
     }
     const entry = map.get(review.reasonCode);
-    if (review.faultOwner === 'magazyn') entry.magazyn += 1;
-    else if (review.faultOwner === 'klient') entry.klient += 1;
+    if (review.faultOwner === 'magazyn') entry.magazyn += group.lineCount;
+    else if (review.faultOwner === 'klient') entry.klient += group.lineCount;
   }
   return [...map.values()]
     .map((e) => ({ ...e, total: e.magazyn + e.klient }))
@@ -153,6 +164,32 @@ export function calculateReasonBreakdown(lines, reviewsByLineId) {
 // do panelu "Opóźnione linie" (wszystko poza DELAY_STATUS === "OK").
 export function linesNeedingReview(lines) {
   return lines.filter((l) => l.delayStatus !== 'OK');
+}
+
+// Grupuje linie wymagające przeglądu po OBD — jeden OBD może mieć kilka wierszy
+// (OBD_LINE), ale w panelu "Opóźnione linie" ocenia się go jako całość: jeden
+// kod przyczyny + jedna wina na cały OBD, a nie osobno na każdą linię.
+// Zakłada, że pola istotne dla statusu (CARRIER, COUNTRY, EXPECTED_SHIP_DATE,
+// PHYSICAL_SHIP_DATE) są wspólne dla wszystkich linii tego samego OBD — tak jest
+// w źródłowym raporcie, bo dotyczą całej przesyłki, nie pojedynczej pozycji.
+export function groupNeedingReviewByObd(lines) {
+  const map = new Map();
+  for (const line of linesNeedingReview(lines)) {
+    if (!map.has(line.OBD)) {
+      map.set(line.OBD, {
+        obd: line.OBD,
+        wmsOrder: line.WMS_ORDER,
+        country: line.NAME_COUNTRY,
+        delayStatus: line.delayStatus,
+        lineCount: 0,
+        totalQty: 0,
+      });
+    }
+    const group = map.get(line.OBD);
+    group.lineCount += 1;
+    group.totalQty += Number(line.OBD_QTY) || 0;
+  }
+  return [...map.values()];
 }
 
 // --- Filtr daty na dashboardzie ---------------------------------------------

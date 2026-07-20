@@ -1,4 +1,5 @@
-// Warstwa zapisu ocenionych linii ("kod przyczyny" + "wina").
+// Warstwa zapisu ocenionych OBD ("kod przyczyny" + "wina") — ocena dotyczy
+// całego OBD (może obejmować kilka linii/OBD_LINE), nie pojedynczego wiersza.
 // Dziś: localStorage, per klient. Docelowo backend zastąpi wyłącznie treść
 // tych funkcji (fetch zamiast localStorage) — reszta aplikacji się nie zmienia.
 
@@ -18,24 +19,24 @@ export function getAllReviews(clientId) {
   }
 }
 
-export function getReview(clientId, lineId) {
-  return getAllReviews(clientId)[lineId] || null;
+export function getReview(clientId, obd) {
+  return getAllReviews(clientId)[obd] || null;
 }
 
-export function saveReview(clientId, lineId, { reasonCode, faultOwner, reviewedBy = 'Ty' }) {
+export function saveReview(clientId, obd, { reasonCode, faultOwner, reviewedBy = 'Ty' }) {
   const all = getAllReviews(clientId);
-  all[lineId] = {
+  all[obd] = {
     reasonCode,
     faultOwner,
     reviewedBy,
     reviewedAt: new Date().toISOString(),
   };
   localStorage.setItem(storageKey(clientId), JSON.stringify(all));
-  return all[lineId];
+  return all[obd];
 }
 
-export function deleteReview(clientId, lineId) {
+export function deleteReview(clientId, obd) {
   const all = getAllReviews(clientId);
-  delete all[lineId];
+  delete all[obd];
   localStorage.setItem(storageKey(clientId), JSON.stringify(all));
 }

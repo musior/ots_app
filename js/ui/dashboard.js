@@ -8,9 +8,9 @@ function pctClass(pct, target, warn) {
   return 'bad';
 }
 
-export function renderDashboard({ lines, reviewsByLineId, config }) {
+export function renderDashboard({ lines, reviewsByObd, config }) {
   const warnPct = config.warnPct;
-  const kpis = calculateKpis(lines, reviewsByLineId, config);
+  const kpis = calculateKpis(lines, reviewsByObd, config);
 
   renderGauge(document.getElementById('gaugeGross'), { value: kpis.gross * 100, good: config.targetPct, warn: warnPct });
   document.getElementById('valueGross').textContent = formatPercent(kpis.gross);
@@ -60,7 +60,7 @@ export function renderDashboard({ lines, reviewsByLineId, config }) {
   document.getElementById('countryHint').textContent = `${countries.length} ${countries.length === 1 ? 'kraj' : 'krajów'}`;
 
   // Tabela wg reason code
-  const reasons = calculateReasonBreakdown(lines, reviewsByLineId);
+  const reasons = calculateReasonBreakdown(lines, reviewsByObd);
   const reasonBody = document.getElementById('reasonTable');
   reasonBody.innerHTML = '';
   if (reasons.length === 0) {
