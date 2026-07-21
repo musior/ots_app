@@ -26,12 +26,22 @@ modułów przez CORS. Trzeba odpalić lokalny serwer statyczny, np.:
 
 ## Do potwierdzenia na realnych danych
 
-- `domesticCountryCode: '060'` w `js/clients/3me.js` — wartość wzięta wprost z formuły DAX
-  (`country <> "060"`), ale w przykładowym pliku nie było wiersza z Polski, więc nie dało się
-  jej zweryfikować. Porównanie zaimplementowane jest liczbowo (`Number(...) === Number(...)`),
-  więc różnice w zapisie (`"60"` vs `"060"`) nie powinny mieć znaczenia — ale sama wartość kodu
-  wymaga potwierdzenia na pliku z polskimi wierszami.
 - `data/przyklad_3ME_OBD.csv` w tym repo jest zapisany jako UTF-8 (wklejony w rozmowie), a docelowy
   plik z SharePointa jest w windows-1250 — do testowania logiki liczenia to nie ma znaczenia
   (kolumny użyte w obliczeniach są czysto ASCII), ale nazwy miast/firm w tym konkretnym pliku
   będą wyglądać źle. Do testu samego dekodowania encodingu potrzebny jest prawdziwy eksport z WMS.
+
+## Świadome różnice względem obecnego Power BI
+
+- **Polska (`COUNTRY = 60`) z pustym `CARRIER`.** Obecna formuła Power Query rzutuje `COUNTRY`
+  na `Int64.Type`, więc `Text.From(60)` daje `"60"`, a nie `"060"` — porównanie
+  `country <> "060"` jest więc zawsze prawdziwe, nawet dla Polski, i Power BI dziś przesuwa
+  `AdjustedExpectedDate` o +3 dni również dla krajowych linii z pustym przewoźnikiem. To wygląda
+  na niezamierzony błąd w obecnej logice (branch "krajowe, bez przesunięcia" nigdy się nie
+  uruchamia). Po konsultacji zdecydowaliśmy **naprawić to w nowej aplikacji**: Polska + pusty
+  `CARRIER` → data bez przesunięcia (`js/calcEngine.js`, porównanie liczbowe
+  `Number(country) === Number(domesticCountryCode)`, więc `"60"` i `"060"` są traktowane jako ten
+  sam kod). Skutek: dla tych konkretnych linii `AdjustedExpectedDate` w nowej aplikacji **będzie
+  się różnić** od tego, co dziś pokazuje Power BI (u nas zostaje np. 17 lipca, w Power BI wychodzi
+  20 lipca) — to świadoma decyzja, nie błąd migracji. Warto to zaznaczyć osobom, które będą
+  porównywać liczby ze starym narzędziem podczas przejścia.
