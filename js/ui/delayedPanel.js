@@ -19,6 +19,57 @@ function reasonOptionsHtml(selected) {
   return html;
 }
 
+function refreshRowSaveState(tr) {
+  const select = tr.querySelector('.reason');
+  const saveBtn = tr.querySelector('.save-btn');
+  const ownerChosen = tr.querySelector('.owner-btn[aria-pressed="true"]');
+  saveBtn.disabled = !(select.value && ownerChosen);
+}
+
+// Zapisuje stan wiersza po zatwierdzeniu (pojedynczo albo masowo) — działa
+// wyłącznie na przekazanym <tr>, nigdy nie przebudowuje reszty tabeli, więc
+// nie kasuje niezapisanych jeszcze zmian w innych wierszach.
+function lockRow(tr, review) {
+  const select = tr.querySelector('.reason');
+  const ownerToggle = tr.querySelector('.owner-toggle');
+  const ownerBtns = tr.querySelectorAll('.owner-btn');
+  const saveBtn = tr.querySelector('.save-btn');
+  const editBtn = tr.querySelector('.edit-btn');
+
+  select.value = review.reasonCode;
+  select.disabled = true;
+  ownerBtns.forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.owner === review.faultOwner));
+    b.disabled = true;
+  });
+  ownerToggle.dataset.locked = 'true';
+  tr.dataset.status = 'done';
+
+  tr.querySelector('.status-cell').innerHTML = `
+    <span class="chip chip--done"><i class="dot"></i>Uzupełnione</span>
+    <div class="row-meta">${review.reviewedBy} · ${new Date(review.reviewedAt).toLocaleString('pl-PL')}</div>`;
+
+  saveBtn.style.display = 'none';
+  editBtn.style.display = '';
+}
+
+function unlockRow(tr) {
+  const select = tr.querySelector('.reason');
+  const ownerToggle = tr.querySelector('.owner-toggle');
+  const ownerBtns = tr.querySelectorAll('.owner-btn');
+  const saveBtn = tr.querySelector('.save-btn');
+  const editBtn = tr.querySelector('.edit-btn');
+
+  select.disabled = false;
+  ownerBtns.forEach((b) => (b.disabled = false));
+  ownerToggle.dataset.locked = 'false';
+  tr.dataset.status = 'pending';
+  tr.querySelector('.status-cell').innerHTML = '<span class="chip chip--pending"><i class="dot"></i>Do uzupełnienia</span>';
+  editBtn.style.display = 'none';
+  saveBtn.style.display = '';
+  refreshRowSaveState(tr);
+}
+
 // Wiersz reprezentuje jeden OBD (może obejmować kilka linii/OBD_LINE) —
 // ocena (kod przyczyny + wina) dotyczy całego OBD naraz.
 function buildRow(group) {
@@ -26,6 +77,7 @@ function buildRow(group) {
   const saved = !!(existing && existing.reasonCode && existing.faultOwner);
 
   const tr = document.createElement('tr');
+  tr.dataset.obd = group.obd;
   tr.dataset.kraj = group.country || '';
   tr.dataset.status = saved ? 'done' : 'pending';
   tr.dataset.search = `${group.wmsOrder || ''} ${group.obd || ''}`.toLowerCase();
@@ -33,6 +85,7 @@ function buildRow(group) {
   const status = statusLabel(group.delayStatus);
 
   tr.innerHTML = `
+    <td><input type="checkbox" class="row-select" /></td>
     <td class="kraj">${group.country || '—'}</td>
     <td class="num">${group.wmsOrder || '—'}</td>
     <td class="num">${group.obd || '—'}</td>
@@ -43,7 +96,7 @@ function buildRow(group) {
         <button type="button" class="owner-btn" data-owner="magazyn" aria-pressed="${existing?.faultOwner === 'magazyn'}">Magazyn</button>
         <button type="button" class="owner-btn" data-owner="klient" aria-pressed="${existing?.faultOwner === 'klient'}">Klient</button>
       </div></td>
-    <td>
+    <td class="status-cell">
       <span class="chip ${saved ? 'chip--done' : 'chip--pending'}"><i class="dot"></i>${saved ? 'Uzupełnione' : 'Do uzupełnienia'}</span>
       ${saved ? `<div class="row-meta">${existing.reviewedBy} · ${new Date(existing.reviewedAt).toLocaleString('pl-PL')}</div>` : ''}
     </td>
@@ -52,73 +105,45 @@ function buildRow(group) {
       <button type="button" class="link-btn edit-btn" style="${saved ? '' : 'display:none'}">Edytuj</button>
     </td>`;
 
-  const select = tr.querySelector('.reason');
-  const ownerToggle = tr.querySelector('.owner-toggle');
-  const ownerBtns = tr.querySelectorAll('.owner-btn');
-  const saveBtn = tr.querySelector('.save-btn');
-  const editBtn = tr.querySelector('.edit-btn');
-  const chip = tr.querySelectorAll('.chip')[1];
-
   if (saved) {
-    select.disabled = true;
-    ownerBtns.forEach((b) => (b.disabled = true));
+    tr.querySelector('.reason').disabled = true;
+    tr.querySelectorAll('.owner-btn').forEach((b) => (b.disabled = true));
   }
 
-  function refreshSaveState() {
-    const ownerChosen = tr.querySelector('.owner-btn[aria-pressed="true"]');
-    saveBtn.disabled = !(select.value && ownerChosen);
-  }
-  select.addEventListener('change', refreshSaveState);
+  tr.querySelector('.reason').addEventListener('change', () => refreshRowSaveState(tr));
 
-  ownerBtns.forEach((btn) => {
+  tr.querySelectorAll('.owner-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
+      const ownerToggle = tr.querySelector('.owner-toggle');
       if (ownerToggle.dataset.locked === 'true') return;
-      ownerBtns.forEach((b) => b.setAttribute('aria-pressed', 'false'));
+      tr.querySelectorAll('.owner-btn').forEach((b) => b.setAttribute('aria-pressed', 'false'));
       btn.setAttribute('aria-pressed', 'true');
-      refreshSaveState();
+      refreshRowSaveState(tr);
     });
   });
 
-  saveBtn.addEventListener('click', () => {
+  tr.querySelector('.save-btn').addEventListener('click', () => {
+    const select = tr.querySelector('.reason');
     const owner = tr.querySelector('.owner-btn[aria-pressed="true"]')?.dataset.owner;
     if (!select.value || !owner) return;
-    const savedReview = reviewsStore.saveReview(currentClientId, group.obd, {
-      reasonCode: select.value,
-      faultOwner: owner,
-    });
-    select.disabled = true;
-    ownerBtns.forEach((b) => (b.disabled = true));
-    ownerToggle.dataset.locked = 'true';
-    tr.dataset.status = 'done';
-    chip.className = 'chip chip--done';
-    chip.innerHTML = '<i class="dot"></i>Uzupełnione';
-    const meta = document.createElement('div');
-    meta.className = 'row-meta';
-    meta.textContent = `${savedReview.reviewedBy} · ${new Date(savedReview.reviewedAt).toLocaleString('pl-PL')}`;
-    tr.children[7].appendChild(meta);
-    saveBtn.style.display = 'none';
-    editBtn.style.display = '';
+    const savedReview = reviewsStore.saveReview(currentClientId, group.obd, { reasonCode: select.value, faultOwner: owner });
+    lockRow(tr, savedReview);
+    updateStats();
+    applyFilters();
     onChangeCallback?.();
   });
 
-  editBtn.addEventListener('click', () => {
+  tr.querySelector('.edit-btn').addEventListener('click', () => {
     // Celowo NIE kasujemy tu zapisu w reviewsStore — dopóki ktoś nie kliknie
-    // "Zapisz" ponownie, poprzednia klasyfikacja zostaje w bazie. Inaczej
-    // pełny re-render panelu (wywoływany po zapisaniu innego wiersza) mógłby
-    // bezpowrotnie skasować w połowie edytowany OBD.
-    select.disabled = false;
-    ownerBtns.forEach((b) => (b.disabled = false));
-    ownerToggle.dataset.locked = 'false';
-    tr.dataset.status = 'pending';
-    chip.className = 'chip chip--pending';
-    chip.innerHTML = '<i class="dot"></i>Do uzupełnienia';
-    const meta = tr.children[7].querySelector('.row-meta');
-    if (meta) meta.remove();
-    editBtn.style.display = 'none';
-    saveBtn.style.display = '';
-    refreshSaveState();
+    // "Zapisz" ponownie, poprzednia klasyfikacja zostaje. Odblokowanie działa
+    // tylko na tym jednym wierszu, więc nie rusza innych edytowanych wierszy.
+    unlockRow(tr);
+    updateStats();
+    applyFilters();
     onChangeCallback?.();
   });
+
+  tr.querySelector('.row-select').addEventListener('change', updateBulkBarState);
 
   return tr;
 }
@@ -154,6 +179,74 @@ function updateStats() {
   document.getElementById('totalCount').textContent = String(total);
 }
 
+// --- Masowe zatwierdzanie: zaznacz kilka OBD, wybierz jeden kod przyczyny
+// i jedną winę, zapisz wszystkie naraz. -------------------------------------
+function selectedRows() {
+  return [...document.querySelectorAll('#delayedTable .row-select:checked')].map((cb) => cb.closest('tr'));
+}
+
+function updateBulkBarState() {
+  const rows = selectedRows();
+  document.getElementById('bulkBar').hidden = rows.length === 0;
+  document.getElementById('bulkCount').textContent = String(rows.length);
+  refreshBulkSaveState();
+}
+
+function refreshBulkSaveState() {
+  const reason = document.getElementById('bulkReason').value;
+  const owner = document.querySelector('#bulkOwnerToggle .owner-btn[aria-pressed="true"]')?.dataset.owner;
+  document.getElementById('bulkSaveBtn').disabled = !(reason && owner && selectedRows().length > 0);
+}
+
+function resetBulkBar() {
+  document.getElementById('bulkReason').value = '';
+  document.querySelectorAll('#bulkOwnerToggle .owner-btn').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+  updateBulkBarState();
+}
+
+function wireBulkBar() {
+  document.getElementById('bulkReason').addEventListener('change', refreshBulkSaveState);
+
+  document.querySelectorAll('#bulkOwnerToggle .owner-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#bulkOwnerToggle .owner-btn').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+      btn.setAttribute('aria-pressed', 'true');
+      refreshBulkSaveState();
+    });
+  });
+
+  document.getElementById('bulkSaveBtn').addEventListener('click', () => {
+    const reasonCode = document.getElementById('bulkReason').value;
+    const faultOwner = document.querySelector('#bulkOwnerToggle .owner-btn[aria-pressed="true"]')?.dataset.owner;
+    if (!reasonCode || !faultOwner) return;
+
+    for (const tr of selectedRows()) {
+      const savedReview = reviewsStore.saveReview(currentClientId, tr.dataset.obd, { reasonCode, faultOwner });
+      lockRow(tr, savedReview);
+      tr.querySelector('.row-select').checked = false;
+    }
+
+    resetBulkBar();
+    updateStats();
+    applyFilters();
+    onChangeCallback?.();
+  });
+
+  document.getElementById('bulkClearBtn').addEventListener('click', () => {
+    document.querySelectorAll('#delayedTable .row-select:checked').forEach((cb) => { cb.checked = false; });
+    updateBulkBarState();
+  });
+
+  document.getElementById('selectAllCheckbox').addEventListener('change', (e) => {
+    document.querySelectorAll('#delayedTable tr').forEach((tr) => {
+      if (tr.style.display === 'none') return; // tylko wiersze widoczne po filtrach
+      const cb = tr.querySelector('.row-select');
+      if (cb) cb.checked = e.target.checked;
+    });
+    updateBulkBarState();
+  });
+}
+
 export function renderDelayedPanel({ lines, config, clientId, onChange }) {
   currentGroups = groupNeedingReviewByObd(lines);
   currentConfig = config;
@@ -170,6 +263,10 @@ export function renderDelayedPanel({ lines, config, clientId, onChange }) {
   const countries = [...new Set(currentGroups.map((g) => g.country).filter(Boolean))].sort();
   krajSelect.innerHTML = '<option value="">Wszystkie kraje</option>' + countries.map((c) => `<option>${c}</option>`).join('');
 
+  document.getElementById('bulkReason').innerHTML = reasonOptionsHtml(null);
+  document.getElementById('selectAllCheckbox').checked = false;
+  resetBulkBar();
+
   updateStats();
   applyFilters();
 }
@@ -177,4 +274,5 @@ export function renderDelayedPanel({ lines, config, clientId, onChange }) {
 export function wireDelayedFilters() {
   ['filterKraj', 'filterStatus'].forEach((id) => document.getElementById(id).addEventListener('change', applyFilters));
   document.getElementById('filterSearch').addEventListener('input', applyFilters);
+  wireBulkBar();
 }

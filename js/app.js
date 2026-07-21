@@ -22,11 +22,25 @@ function visibleLines() {
   return filterByAdjustedDate(enrichedLines, selectedDate);
 }
 
+// Pełny render: wywoływany po imporcie pliku i po zmianie filtra daty —
+// jedyne sytuacje, w których zbiór linii faktycznie się zmienia.
 function renderAll() {
   const lines = visibleLines();
-  renderDashboard({ lines, reviewsByObd: reviewsByObd(), config });
-  renderDelayedPanel({ lines, config, clientId, onChange: renderAll });
+  refreshDashboard(lines);
+  renderDelayedPanel({ lines, config, clientId, onChange: refreshDashboardAfterReview });
   updateDateFilterHint(lines.length);
+}
+
+function refreshDashboard(lines) {
+  renderDashboard({ lines, reviewsByObd: reviewsByObd(), config });
+}
+
+// Wywoływane po zapisaniu/edycji oceny w panelu "Opóźnione linie". Odświeża
+// TYLKO dashboard (bo Gross/Net zależą od reviewsStore) — celowo NIE wywołuje
+// renderDelayedPanel, żeby nie przebudowywać całej tabeli i nie czyścić
+// niezapisanych jeszcze zmian w innych wierszach.
+function refreshDashboardAfterReview() {
+  refreshDashboard(visibleLines());
 }
 
 function updateDateFilterHint(count) {
