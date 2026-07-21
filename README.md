@@ -21,7 +21,7 @@ modułów przez CORS. Trzeba odpalić lokalny serwer statyczny, np.:
 - `js/csvParser.js` — wczytanie i sparsowanie pliku CSV (windows-1250, `;`)
 - `js/calcEngine.js` — logika 1:1 z Power Query/DAX: `AdjustedExpectedDate` → `DELAY_STATUS` → region → KPI (Gross/Net)
 - `js/reviewsStore.js` — zapis ocenionych linii (dziś: localStorage)
-- `js/ui/` — renderowanie dashboardu, panelu opóźnionych linii i gauge'ów
+- `js/ui/` — renderowanie dashboardu (karty KPI, tabela krajów) i panelu opóźnionych linii
 - `data/` — przykładowe pliki OBD do testów lokalnych (w `.gitignore`, nigdy nie trafiają do repo)
 
 ## Do potwierdzenia na realnych danych

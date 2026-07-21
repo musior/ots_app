@@ -7,7 +7,7 @@ export const client3me = {
   id: '3me',
   name: '3ME',
   targetPct: 98.5,
-  warnPct: 95, // próg, poniżej którego gauge świeci na czerwono zamiast żółto (jak na oryginalnym dashboardzie)
+  warnPct: 95, // próg, poniżej którego karta KPI świeci na czerwono zamiast żółto
 
   // Kod kraju (kolumna COUNTRY, numeryczna) używany do wykrycia przesyłek krajowych,
   // gdy CARRIER jest pusty. Wzięty wprost z formuły DAX ("060") — w przykładowym pliku
