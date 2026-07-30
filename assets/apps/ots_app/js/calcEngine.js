@@ -106,12 +106,21 @@ export function calculateKpis(lines, reviewsByObd, config) {
   // doliczamy do licznika Net liczbę wierszy (linii), jakie ten OBD reprezentuje —
   // nie sumę wartości w kolumnie OBD_LINE, tylko faktyczną liczbę wierszy.
   const lineCountByObd = new Map();
+  const needsReviewObds = new Set();
   for (const line of lines) {
     lineCountByObd.set(line.OBD, (lineCountByObd.get(line.OBD) || 0) + 1);
+    if (line.delayStatus !== 'OK') needsReviewObds.add(line.OBD);
   }
 
+  // Zapisana ocena liczy się do Net tylko, jeśli to OBD PRZY TYM imporcie nadal
+  // faktycznie wymaga przeglądu (delayStatus !== 'OK'). Ocena mogła zostać zapisana
+  // przy wcześniejszym imporcie, gdy linia jeszcze wyglądała na opóźnioną — jeśli od
+  // tego czasu WMS potwierdził wysyłkę na czas, review zostaje w store (do wglądu
+  // historycznego), ale przestaje sztucznie zawyżać Net (bo linia i tak już liczy się
+  // do `onTime` powyżej).
   let sumaObdLine = 0;
   for (const [obd, count] of lineCountByObd) {
+    if (!needsReviewObds.has(obd)) continue;
     const review = reviewsByObd[obd];
     if (review && review.faultOwner === 'klient' && config.reasonCodes.includes(review.reasonCode)) {
       sumaObdLine += count;
