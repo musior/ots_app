@@ -71,7 +71,11 @@ export function computeRegion(row, config) {
 }
 
 export function enrichLine(row, config, today) {
-  const adjustedExpectedDate = computeAdjustedExpectedDate(row, config);
+  // Formuła AdjustedExpectedDate różni się realnie między klientami (inne grupy
+  // przewoźników / dodatkowe reguły) — config może podać własną implementację
+  // (patrz clients/solventum.js), reszta silnika (DELAY_STATUS, region, KPI) zostaje wspólna.
+  const computeDate = config.computeAdjustedExpectedDate || computeAdjustedExpectedDate;
+  const adjustedExpectedDate = computeDate(row, config);
   const delayStatus = computeDelayStatus(adjustedExpectedDate, row.physicalShipDate, today);
   const region = computeRegion(row, config);
   return { ...row, adjustedExpectedDate, delayStatus, region };
