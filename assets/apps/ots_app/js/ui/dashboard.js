@@ -35,6 +35,10 @@ function applyKpiStatus(cardEl, statusEl, pct, config, warnPct) {
 }
 
 function renderCountryTable() {
+  // Brak danych dla aktywnego klienta (patrz renderEmptyDashboard) — tabela już pokazuje
+  // placeholder "Brak zaimportowanych danych", nie ma czego przeliczać/filtrować.
+  if (!countryTotals) return;
+
   const search = document
     .getElementById("countrySearch")
     .value.trim()
@@ -113,6 +117,33 @@ function wireCountryTableControls() {
 }
 
 let controlsWired = false;
+
+// Resetuje karty KPI i tabele do neutralnego stanu "—" / brak danych — używane, gdy dla
+// aktywnego klienta nic jeszcze nie zaimportowano. Bez tego calculateKpis policzyłby
+// KPI z 0 linii jako 0,00% i pokazałby mylące "NOK", zamiast po prostu pustego stanu.
+export function renderEmptyDashboard() {
+  for (const id of ["Gross", "Net", "PL", "EU", "NONEU"]) {
+    const cardEl = document.getElementById("card" + id);
+    const statusEl = document.getElementById("status" + id);
+    const valueEl = document.getElementById("value" + id);
+    if (!cardEl || !statusEl || !valueEl) continue;
+    cardEl.classList.remove("kpi--good", "kpi--warn", "kpi--bad");
+    statusEl.className = "kpi-status";
+    statusEl.innerHTML = "";
+    valueEl.textContent = "—";
+  }
+  document.getElementById("subGross").textContent = "";
+  document.getElementById("subNet").textContent = "";
+
+  countryRows = [];
+  countryTotals = null;
+  document.getElementById("countryTable").innerHTML =
+    '<tr><td colspan="5" style="color:var(--text-muted)">Brak zaimportowanych danych</td></tr>';
+  document.getElementById("countryHint").textContent = "";
+
+  document.getElementById("reasonTable").innerHTML =
+    '<tr><td colspan="4" style="color:var(--text-muted)">Brak jeszcze uzupełnionych linii</td></tr>';
+}
 
 export function renderDashboard({ lines, reviewsByObd, config }) {
   const warnPct = config.warnPct;
