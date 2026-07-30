@@ -1,38 +1,56 @@
 import { client3me } from './clients/3me.js';
+import { clientSolventum } from './clients/solventum.js';
 import { parseObdCsvFile } from './csvParser.js';
 import { enrichLines, filterByAdjustedDate, adjustedDateRange } from './calcEngine.js';
 import * as reviewsStore from './reviewsStore.js';
-import { renderDashboard } from './ui/dashboard.js';
+import { renderDashboard, renderEmptyDashboard } from './ui/dashboard.js';
 import { renderDelayedPanel, wireDelayedFilters } from './ui/delayedPanel.js';
 import { addDays, startOfToday, toDateInputValue, fromDateInputValue } from './dateUtils.js';
 
-const config = client3me;
-const clientId = client3me.id;
+const clients = [client3me, clientSolventum];
 
-let enrichedLines = [];
-// Domyślnie: wczoraj. Filtrujemy po AdjustedExpectedDate (skorygowanej), nie po
-// surowym EXPECTED_SHIP_DATE — patrz calcEngine.filterByAdjustedDate.
-let selectedDate = addDays(startOfToday(), -1);
+// Stan trzymany osobno per klient — przełączanie zakładki (3ME/SLV) nie gubi
+// zaimportowanych danych ani wybranej daty filtra tego drugiego klienta.
+const state = new Map(
+  clients.map((config) => [
+    config.id,
+    {
+      config,
+      enrichedLines: [],
+      selectedDate: addDays(startOfToday(), -1),
+      fileName: null,
+    },
+  ]),
+);
 
-function reviewsByObd() {
-  return reviewsStore.getAllReviews(clientId);
+let activeClientId = client3me.id;
+
+function activeState() {
+  return state.get(activeClientId);
 }
 
 function visibleLines() {
-  return filterByAdjustedDate(enrichedLines, selectedDate);
+  const st = activeState();
+  return filterByAdjustedDate(st.enrichedLines, st.selectedDate);
 }
 
-// Pełny render: wywoływany po imporcie pliku i po zmianie filtra daty —
-// jedyne sytuacje, w których zbiór linii faktycznie się zmienia.
+// Pełny render: wywoływany po imporcie pliku, po zmianie filtra daty i po
+// przełączeniu klienta — jedyne sytuacje, w których zbiór linii faktycznie się zmienia.
 function renderAll() {
   const lines = visibleLines();
-  refreshDashboard(lines);
-  renderDelayedPanel({ lines, config, clientId, onChange: refreshDashboardAfterReview });
+  // Dopóki dla aktywnego klienta nic nie zaimportowano, nie liczymy KPI z 0 linii
+  // (wyszłoby mylące "0,00% NOK") — pokazujemy neutralny stan pusty.
+  if (activeState().enrichedLines.length === 0) {
+    renderEmptyDashboard();
+  } else {
+    refreshDashboard(lines);
+  }
+  renderDelayedPanel({ lines, config: activeState().config, clientId: activeClientId, onChange: refreshDashboardAfterReview });
   updateDateFilterHint(lines.length);
 }
 
 function refreshDashboard(lines) {
-  renderDashboard({ lines, reviewsByObd: reviewsByObd(), config });
+  renderDashboard({ lines, reviewsByObd: reviewsStore.getAllReviews(activeClientId), config: activeState().config });
 }
 
 // Wywoływane po zapisaniu/edycji oceny w panelu "Opóźnione linie". Odświeża
@@ -45,7 +63,7 @@ function refreshDashboardAfterReview() {
 
 function updateDateFilterHint(count) {
   const hintEl = document.getElementById('dateFilterHint');
-  if (enrichedLines.length === 0) {
+  if (activeState().enrichedLines.length === 0) {
     hintEl.textContent = '';
     return;
   }
@@ -54,60 +72,126 @@ function updateDateFilterHint(count) {
     : 'Brak linii dla wybranej daty w zaimportowanym pliku';
 }
 
-function setImportStatus(text) {
-  document.getElementById('importStatus').textContent = text;
+function importStatusText(st) {
+  return st.fileName ? `${st.fileName} · ${st.enrichedLines.length} linii` : 'Brak zaimportowanych danych';
 }
 
-function setDateFilterBounds() {
+function refreshImportStatus() {
+  document.getElementById('importStatus').textContent = importStatusText(activeState());
+}
+
+// Przycina zapamiętaną datę filtra danego klienta do zakresu jego własnych danych —
+// czysta operacja na stanie, bez dotykania DOM. Musi działać dla KAŻDEGO importowanego
+// klienta, niezależnie od tego, który jest akurat aktywną zakładką.
+function clampSelectedDate(st) {
+  const range = adjustedDateRange(st.enrichedLines);
+  if (range && (st.selectedDate < range.min || st.selectedDate > range.max)) {
+    st.selectedDate = range.max;
+  }
+  return range;
+}
+
+// Odzwierciedla w DOM (wspólny input daty) stan PODANEGO klienta — wolno wywoływać
+// tylko dla aktualnie aktywnej zakładki, inaczej nadpiszemy widoczny filtr danymi
+// klienta, który nie jest teraz wyświetlany.
+function syncDateFilterInput(st) {
   const input = document.getElementById('dateFilter');
-  const range = adjustedDateRange(enrichedLines);
+  const range = clampSelectedDate(st);
   if (!range) {
     input.disabled = true;
+    input.value = '';
     return;
   }
   input.disabled = false;
   input.min = toDateInputValue(range.min);
   input.max = toDateInputValue(range.max);
-
-  // Jeśli domyślna data (wczoraj) leży poza zakresem zaimportowanego pliku
-  // (typowe przy testowaniu na starszej próbce), pokaż zamiast niej najnowszą
-  // dostępną datę — ale tylko przy pierwszym imporcie, nie nadpisuj świadomego
-  // wyboru użytkownika przy kolejnych importach tego samego dnia.
-  if (selectedDate < range.min || selectedDate > range.max) {
-    selectedDate = range.max;
-  }
-  input.value = toDateInputValue(selectedDate);
+  input.value = toDateInputValue(st.selectedDate);
 }
 
-async function handleFile(file) {
-  if (!file) return;
-  setImportStatus(`Wczytuję ${file.name}…`);
-  try {
-    const rows = await parseObdCsvFile(file, config.csv);
-    enrichedLines = enrichLines(rows, config);
-    setImportStatus(`${file.name} · ${enrichedLines.length} linii`);
-    setDateFilterBounds();
-    renderAll();
-  } catch (err) {
-    console.error(err);
-    setImportStatus('Błąd wczytywania pliku — sprawdź konsolę');
+// Dopasowuje plik do klienta po numerze raportu zaszytym w nazwie pliku
+// (3ME = "4009", Solventum = "8084" — patrz clients/*.js -> reportNumber).
+function matchClientForFile(file) {
+  return clients.find((config) => file.name.includes(config.reportNumber)) || null;
+}
+
+async function handleFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (files.length === 0) return;
+
+  const matches = files.map((file) => ({ file, config: matchClientForFile(file) }));
+  const unmatched = matches.filter((m) => !m.config);
+  const matched = matches.filter((m) => m.config);
+
+  if (matched.length === 0) {
+    const expected = clients.map((c) => `"${c.reportNumber}" (${c.name})`).join(' lub ');
+    document.getElementById('importStatus').textContent =
+      `Nie rozpoznano klienta po nazwie pliku — oczekiwano numeru raportu ${expected} w nazwie.`;
+    return;
   }
+
+  for (const { file, config } of matched) {
+    const st = state.get(config.id);
+    try {
+      const rows = await parseObdCsvFile(file, config.csv);
+      st.enrichedLines = enrichLines(rows, config);
+      st.fileName = file.name;
+      clampSelectedDate(st);
+    } catch (err) {
+      console.error(err);
+      st.enrichedLines = [];
+      st.fileName = `${file.name} (błąd wczytywania — sprawdź konsolę)`;
+    }
+  }
+
+  if (unmatched.length > 0) {
+    console.warn('Pominięto pliki bez rozpoznanego klienta:', unmatched.map((m) => m.file.name));
+  }
+
+  // DOM (input daty + status importu + dashboard) zawsze synchronizujemy tylko z danymi
+  // aktualnie aktywnej zakładki — dane drugiego klienta zostają zapisane w stanie
+  // (już przycięte przez clampSelectedDate powyżej) i pokażą się po przełączeniu na niego.
+  syncDateFilterInput(activeState());
+  refreshImportStatus();
+  renderAll();
 }
 
 function wireImport() {
   const input = document.getElementById('csvInput');
   document.getElementById('importBtn').addEventListener('click', () => input.click());
-  input.addEventListener('change', () => handleFile(input.files?.[0]));
+  input.addEventListener('change', () => {
+    handleFiles(input.files);
+    input.value = ''; // pozwala wgrać ten sam plik ponownie (np. po poprawce w źródle)
+  });
 }
 
 function wireDateFilter() {
   const input = document.getElementById('dateFilter');
-  input.value = toDateInputValue(selectedDate);
   input.addEventListener('change', () => {
     const parsed = fromDateInputValue(input.value);
     if (!parsed) return;
-    selectedDate = parsed;
+    activeState().selectedDate = parsed;
     renderAll();
+  });
+}
+
+function switchClient(clientId) {
+  if (clientId === activeClientId || !state.has(clientId)) return;
+  activeClientId = clientId;
+
+  document.querySelectorAll('.rail-btn[data-client-id]').forEach((btn) => {
+    btn.setAttribute('aria-current', btn.dataset.clientId === clientId ? 'true' : 'false');
+  });
+  document.getElementById('titleName').textContent = activeState().config.name;
+  document.title = `OTS · On Time Shipment — ${activeState().config.name}`;
+
+  syncDateFilterInput(activeState());
+  refreshImportStatus();
+  renderAll();
+}
+
+function wireRail() {
+  document.querySelectorAll('.rail-btn[data-client-id]').forEach((btn) => {
+    btn.addEventListener('click', () => switchClient(btn.dataset.clientId));
   });
 }
 
@@ -131,7 +215,8 @@ function wireTheme() {
 
 wireImport();
 wireDateFilter();
+wireRail();
 wireTabs();
 wireTheme();
 wireDelayedFilters();
-document.getElementById('titleName').textContent = config.name;
+document.getElementById('titleName').textContent = activeState().config.name;
