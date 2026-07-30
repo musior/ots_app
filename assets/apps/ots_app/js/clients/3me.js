@@ -3,11 +3,17 @@
 // używanego dziś w Power BI. Klient Solventum dostanie analogiczny plik z własnymi regułami —
 // silnik obliczeniowy (js/calcEngine.js) jest wspólny dla obu.
 
+import { sharedReasonCodes } from './reasonCodes.js';
+
 export const client3me = {
   id: '3me',
   name: '3ME',
   targetPct: 98.5,
   warnPct: 95, // próg, poniżej którego karta KPI świeci na czerwono zamiast żółto
+
+  // Numer raportu w nazwie pliku eksportu z SharePointa — używany przez app.js do
+  // rozpoznania, do którego klienta należy wgrywany plik (3ME = "4009", Solventum = "8084").
+  reportNumber: '4009',
 
   // Kod kraju (kolumna COUNTRY, numeryczna) używany do wykrycia przesyłek krajowych,
   // gdy CARRIER jest pusty. Wzięty wprost z formuły DAX ("060") — w przykładowym pliku
@@ -36,20 +42,6 @@ export const client3me = {
     'SZWECJA', 'WEGRY', 'WLOCHY',
   ],
 
-  // Zamknięta lista reason code'ów dla 3ME — używana zarówno w dropdownie panelu
-  // "Opóźnione linie", jak i w formule %OTS Net (Suma_OBD_Line).
-  reasonCodes: [
-    '3M request',
-    'Volume arrangement',
-    'According to schedule',
-    'Carrier issue',
-    'IT issue',
-    'Kitting/Converting',
-    'Labeling',
-    'Waiting for 3M feedback',
-    'Customer pre-advice',
-    '3M Customer service cancel N16',
-    'HCSPIN in-transit',
-    'Holiday',
-  ],
+  // Lista reason code'ów jest współdzielona z Solventum — patrz clients/reasonCodes.js.
+  reasonCodes: sharedReasonCodes,
 };
