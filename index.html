@@ -14,10 +14,8 @@
       <aside class="rail">
         <div class="rail-mark">OTS</div>
         <nav class="rail-nav" aria-label="Klienci">
-          <button class="rail-btn" aria-current="true" title="3ME">3ME</button>
-          <button class="rail-btn" disabled title="Solventum — wkrótce">
-            SLV
-          </button>
+          <button class="rail-btn" data-client-id="3me" aria-current="true" title="3ME">3ME</button>
+          <button class="rail-btn" data-client-id="solventum" aria-current="false" title="Solventum">SLV</button>
         </nav>
         <div class="rail-spacer"></div>
         <button class="rail-theme" id="themeToggle" title="Przełącz motyw">
@@ -42,8 +40,11 @@
             <h1>On Time Shipment — <span id="titleName">3ME</span></h1>
           </div>
           <div class="topbar-controls">
-            <div class="import-box">
-              <input type="file" id="csvInput" accept=".csv" hidden />
+            <div
+              class="import-box"
+              title="Można zaznaczyć oba pliki naraz (3ME i Solventum) — każdy trafi do właściwej zakładki po numerze raportu w nazwie pliku."
+            >
+              <input type="file" id="csvInput" accept=".csv" multiple hidden />
               <button class="btn btn--primary" id="importBtn">
                 <svg
                   viewBox="0 0 24 24"
@@ -54,7 +55,7 @@
                   <path d="M12 16V4M7 9l5-5 5 5" />
                   <path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
                 </svg>
-                Importuj raport OBD (CSV)
+                Importuj raporty OBD (CSV)
               </button>
               <span class="import-status" id="importStatus"
                 >Brak zaimportowanych danych</span
