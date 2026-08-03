@@ -137,19 +137,24 @@ export function calculateKpis(lines, reviewsByObd, config) {
   return { total, onTime, gross, net, sumaObdLine, regions };
 }
 
-// --- Rozbicie wg kraju (widok dashboardu) -----------------------------------
+// --- Rozbicie wg kraju (widok dashboardu + raport mailowy) ------------------
+// Kolejność zwracanych wierszy to kolejność pierwszego wystąpienia kraju w `lines`
+// (kolejność z pliku CSV) — celowo bez sortowania tutaj: dashboard.js i tak sortuje
+// wg własnego stanu (countrySort) przy renderze, a raport mailowy (js/emailReport.js)
+// ma pokazywać kraje w kolejności zgodnej ze źródłowym raportem.
 export function calculateCountryBreakdown(lines) {
   const map = new Map();
   for (const line of lines) {
     const key = line.NAME_COUNTRY || '—';
-    if (!map.has(key)) map.set(key, { country: key, total: 0, onTime: 0 });
+    if (!map.has(key)) map.set(key, { country: key, total: 0, onTime: 0, missed: 0, jConfirmation: 0 });
     const entry = map.get(key);
     entry.total += 1;
     if (line.delayStatus === 'OK') entry.onTime += 1;
+    else if (line.delayStatus === 'DELAY') entry.missed += 1;
+    else entry.jConfirmation += 1; // 'Zamówienie potwierdzone'
   }
   return [...map.values()]
-    .map((e) => ({ ...e, toExplain: e.total - e.onTime, grossPct: e.total === 0 ? 0 : e.onTime / e.total }))
-    .sort((a, b) => b.total - a.total);
+    .map((e) => ({ ...e, toExplain: e.total - e.onTime, grossPct: e.total === 0 ? 0 : e.onTime / e.total }));
 }
 
 // --- Rozbicie wg reason code (na podstawie zapisanych recenzji) ------------
@@ -211,6 +216,17 @@ export function groupNeedingReviewByObd(lines) {
 export function filterByAdjustedDate(lines, date) {
   if (!date) return lines;
   return lines.filter((l) => isSameDay(l.adjustedExpectedDate, date));
+}
+
+// Linie z tego samego miesiąca kalendarzowego co podana data (po AdjustedExpectedDate) —
+// używane do wyników miesięcznych w raporcie mailowym (js/emailReport.js).
+export function filterByAdjustedMonth(lines, date) {
+  if (!date) return lines;
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  return lines.filter(
+    (l) => l.adjustedExpectedDate && l.adjustedExpectedDate.getFullYear() === year && l.adjustedExpectedDate.getMonth() === month,
+  );
 }
 
 // Zakres dostępnych dat (po AdjustedExpectedDate) w aktualnie zaimportowanym pliku —
