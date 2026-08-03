@@ -5,7 +5,8 @@ import { enrichLines, filterByAdjustedDate, adjustedDateRange } from './calcEngi
 import * as reviewsStore from './reviewsStore.js';
 import { renderDashboard, renderEmptyDashboard } from './ui/dashboard.js';
 import { renderDelayedPanel, wireDelayedFilters } from './ui/delayedPanel.js';
-import { addDays, startOfToday, toDateInputValue, fromDateInputValue } from './dateUtils.js';
+import { buildEmailReport } from './emailReport.js';
+import { previousBusinessDay, startOfToday, toDateInputValue, fromDateInputValue } from './dateUtils.js';
 
 const clients = [client3me, clientSolventum];
 
@@ -17,7 +18,7 @@ const state = new Map(
     {
       config,
       enrichedLines: [],
-      selectedDate: addDays(startOfToday(), -1),
+      selectedDate: previousBusinessDay(startOfToday()),
       fileName: null,
     },
   ]),
@@ -47,6 +48,7 @@ function renderAll() {
   }
   renderDelayedPanel({ lines, config: activeState().config, clientId: activeClientId, onChange: refreshDashboardAfterReview });
   updateDateFilterHint(lines.length);
+  refreshEmailButtonState();
 }
 
 function refreshDashboard(lines) {
@@ -78,6 +80,14 @@ function importStatusText(st) {
 
 function refreshImportStatus() {
   document.getElementById('importStatus').textContent = importStatusText(activeState());
+}
+
+// Przycisk maila ma sens tylko wtedy, gdy dla aktywnego klienta w ogóle coś zaimportowano —
+// inaczej raport wyszedłby z samymi zerami. Czyścimy też status "skopiowano", żeby nie
+// wprowadzał w błąd po zmianie kontekstu (inny klient / inna data / nowy import).
+function refreshEmailButtonState() {
+  document.getElementById('emailBtn').disabled = activeState().enrichedLines.length === 0;
+  document.getElementById('emailStatus').textContent = '';
 }
 
 // Przycina zapamiętaną datę filtra danego klienta do zakresu jego własnych danych —
@@ -164,6 +174,61 @@ function wireImport() {
   });
 }
 
+// Zapisuje do schowka RÓWNOLEGLE text/plain i text/html — dzięki temu wklejenie w Outlooku
+// (Ctrl+V) daje prawdziwą sformatowaną tabelę (jak przy kopiowaniu z Excela), a nie tekst
+// z tabulatorami. Zwraca true, jeśli udało się zapisać wersję HTML; false, jeśli przeglądarka
+// tego nie wspiera i zadziałał tylko fallback na zwykły tekst.
+async function copyReportToClipboard(textBody, htmlBody) {
+  if (navigator.clipboard?.write && window.ClipboardItem) {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/plain': new Blob([textBody], { type: 'text/plain' }),
+          'text/html': new Blob([htmlBody], { type: 'text/html' }),
+        }),
+      ]);
+      return true;
+    } catch (err) {
+      console.error('Nie udało się skopiować jako tabela (HTML) — próbuję zwykły tekst.', err);
+    }
+  }
+  await navigator.clipboard.writeText(textBody);
+  return false;
+}
+
+// Kopiuje gotową treść raportu do schowka i otwiera pustego maila (tylko z tematem) w
+// domyślnym kliencie pocztowym — świadomie NIE wstawiamy treści przez mailto:body=...,
+// bo przy tabeli krajów (kilkadziesiąt wierszy) łatwo przekroczyć praktyczny limit
+// długości linku mailto: i Outlook obciąłby treść bez ostrzeżenia.
+function wireEmailButton() {
+  const btn = document.getElementById('emailBtn');
+  const statusEl = document.getElementById('emailStatus');
+
+  btn.addEventListener('click', async () => {
+    const st = activeState();
+    if (st.enrichedLines.length === 0) return;
+
+    const { subject, textBody, htmlBody } = buildEmailReport({
+      config: st.config,
+      enrichedLines: st.enrichedLines,
+      selectedDate: st.selectedDate,
+      reviewsByObd: reviewsStore.getAllReviews(activeClientId),
+    });
+
+    try {
+      const copiedAsTable = await copyReportToClipboard(textBody, htmlBody);
+      statusEl.textContent = copiedAsTable
+        ? 'Tabele skopiowane do schowka — wklej w mailu (Ctrl+V)'
+        : 'Treść skopiowana do schowka jako zwykły tekst (przeglądarka nie wspiera tabel) — wklej w mailu (Ctrl+V)';
+    } catch (err) {
+      console.error(err);
+      statusEl.textContent = 'Nie udało się skopiować do schowka — sprawdź konsolę';
+    }
+
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}`;
+  });
+}
+
 function wireDateFilter() {
   const input = document.getElementById('dateFilter');
   input.addEventListener('change', () => {
@@ -215,6 +280,7 @@ function wireTheme() {
 
 wireImport();
 wireDateFilter();
+wireEmailButton();
 wireRail();
 wireTabs();
 wireTheme();
