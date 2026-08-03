@@ -63,6 +63,9 @@ export const clientSolventum = {
   id: 'solventum',
   name: 'Solventum',
 
+  // Temat raportu mailowego to "OTS Solventum - <data>" (patrz js/emailReport.js).
+  emailSubjectLabel: 'Solventum',
+
   // Potwierdzone: ten sam target/próg co dla 3ME.
   targetPct: 98.5,
   warnPct: 95,
