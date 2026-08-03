@@ -30,6 +30,26 @@ export function startOfToday() {
   return d;
 }
 
+// Poprzedni dzień roboczy (pomija sobotę/niedzielę) — domyślna data filtra i punkt
+// odniesienia dla raportu mailowego, tak żeby w poniedziałek domyślnie pokazywało piątek.
+export function previousBusinessDay(date) {
+  let d = addDays(date, -1);
+  const day = d.getDay(); // niedziela=0 ... sobota=6
+  if (day === 0) d = addDays(d, -2);
+  else if (day === 6) d = addDays(d, -1);
+  return d;
+}
+
+// Format "DD-MM-RRRR" używany w temacie i treści raportu mailowego (js/emailReport.js) —
+// inny niż formatDatePl (kropki, pl-PL), bo takiego formatu oczekuje treść maila.
+export function formatDateDMY(date) {
+  if (!date) return '';
+  const d = String(date.getDate()).padStart(2, '0');
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const y = date.getFullYear();
+  return `${d}-${m}-${y}`;
+}
+
 export function formatDatePl(date) {
   if (!date) return '—';
   return date.toLocaleDateString('pl-PL');
