@@ -31,6 +31,14 @@ modułów przez CORS. Trzeba odpalić lokalny serwer statyczny, np.:
   każdy trafia do właściwego klienta po `reportNumber` w nazwie pliku. Stan (zaimportowane linie,
   wybrana data filtra) jest trzymany osobno per klient, więc przełączanie zakładki 3ME/SLV nie gubi danych.
 - `js/reviewsStore.js` — zapis ocenionych linii, osobno per klient (dziś: localStorage)
+- `js/emailReport.js` — buduje temat/treść raportu OTS do wysyłki mailem (przycisk "Wyślij raport
+  mailem"). Wszystkie liczby w tym raporcie to **OTS Gross** (surowy, bez uwzględniania zapisanych
+  powodów opóźnień) — inaczej niż karta "OTS Total Net" w dashboardzie. Zwraca zarówno wersję
+  tekstową (tabulatory, fallback), jak i HTML (prawdziwe `<table>`) — `js/app.js` zapisuje OBIE
+  równolegle do schowka przez `ClipboardItem`, dzięki czemu wklejenie w Outlooku (Ctrl+V) daje
+  sformatowaną tabelę, a nie tekst z tabulatorami. `mailto:` otwiera tylko pusty mail z tematem
+  (świadomie bez `body=...` — przy tabeli krajów łatwo przekroczyć praktyczny limit długości linku
+  `mailto:` i Outlook obciąłby treść bez ostrzeżenia), więc wysyłający musi wkleić.
 - `js/ui/` — renderowanie dashboardu (karty KPI, tabela krajów) i panelu opóźnionych linii
 - `data/` — przykładowe pliki OBD do testów lokalnych (w `.gitignore`, nigdy nie trafiają do repo)
 
