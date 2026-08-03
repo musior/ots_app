@@ -8,6 +8,11 @@ import { sharedReasonCodes } from './reasonCodes.js';
 export const client3me = {
   id: '3me',
   name: '3ME',
+
+  // Temat raportu mailowego to "OTS Fiege - <data>", nie "OTS 3ME" — nazwa klienta
+  // w temacie różni się od nazwy klienta w UI, stąd osobne pole (patrz js/emailReport.js).
+  emailSubjectLabel: 'Fiege',
+
   targetPct: 98.5,
   warnPct: 95, // próg, poniżej którego karta KPI świeci na czerwono zamiast żółto
 
