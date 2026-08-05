@@ -26,10 +26,17 @@ modułów przez CORS. Trzeba odpalić lokalny serwer statyczny, np.:
 - `js/calcEngine.js` — silnik wspólny dla obu klientów: `DELAY_STATUS` → region → KPI (Gross/Net) są
   identyczne; `AdjustedExpectedDate` różni się per klient, więc `enrichLine` woła
   `config.computeAdjustedExpectedDate`, jeśli klient go dostarczy (patrz `js/clients/solventum.js`),
-  inaczej pada na implementację 3ME zaszytą w tym pliku.
+  inaczej pada na implementację 3ME zaszytą w tym pliku. `DELAY_STATUS` porównuje się domyślnie z
+  `LOADING DATE` (nie `PHYSICAL_SHIP_DATE`) przez `config.selectDeliveryDate` — 3ME ma tu wyjątek dla
+  przewoźników DPD/MGS (patrz `js/clients/3me.js`), Solventum zawsze zostaje przy `LOADING DATE`.
+  `filterByAdjustedDateRange` filtruje po dowolnym zakresie dat (obie granice włącznie), nie tylko
+  po jednym dniu — to na nim stoi dashboard (KPI, tabela krajów, powody, panel "Opóźnione linie").
 - `js/app.js` — jeden przycisk importu pozwala zaznaczyć pliki obu klientów naraz (multi-select);
   każdy trafia do właściwego klienta po `reportNumber` w nazwie pliku. Stan (zaimportowane linie,
-  wybrana data filtra) jest trzymany osobno per klient, więc przełączanie zakładki 3ME/SLV nie gubi danych.
+  wybrany zakres dat `dateFrom`/`dateTo`) jest trzymany osobno per klient, więc przełączanie zakładki
+  3ME/SLV nie gubi danych. Domyślnie `dateFrom === dateTo` (jeden dzień — poprzedni dzień roboczy),
+  przycisk "Cały miesiąc" rozszerza zakres do miesiąca kalendarzowego. Przycisk maila jest zablokowany,
+  gdy zakres to więcej niż jeden dzień — szablon maila zakłada pojedynczy dzień (patrz `js/emailReport.js`).
 - `js/reviewsStore.js` — zapis ocenionych linii, osobno per klient (dziś: localStorage)
 - `js/emailReport.js` — buduje temat/treść raportu OTS do wysyłki mailem (przycisk "Wyślij raport
   mailem"). Wszystkie liczby w tym raporcie to **OTS Gross** (surowy, bez uwzględniania zapisanych
