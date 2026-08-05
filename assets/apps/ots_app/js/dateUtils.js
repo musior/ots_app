@@ -40,6 +40,16 @@ export function previousBusinessDay(date) {
   return d;
 }
 
+// Granice miesiąca kalendarzowego zawierającego podaną datę — używane przez przycisk
+// "Cały miesiąc" przy filtrze zakresu dat na dashboardzie.
+export function startOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+export function endOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
 // Format "DD-MM-RRRR" używany w temacie i treści raportu mailowego (js/emailReport.js) —
 // inny niż formatDatePl (kropki, pl-PL), bo takiego formatu oczekuje treść maila.
 export function formatDateDMY(date) {
