@@ -29,6 +29,12 @@ export async function parseObdCsvFile(file, { delimiter = ';', encoding = 'windo
 
     row.lineId = `${row.OBD}_${row.OBD_LINE}`;
     row.expectedShipDate = parseNumericDate(row.EXPECTED_SHIP_DATE);
+    // DELAY_STATUS domyślnie porównuje się z datą załadunku (LOADING DATE), nie z
+    // PHYSICAL_SHIP_DATE — patrz calcEngine.computeDelayStatus. Nazwa kolumny ma spację
+    // (tak jak "PHYSICAL SHIP TIME"), stąd zapis przez nawias, nie przez kropkę.
+    // PHYSICAL_SHIP_DATE parsujemy też — 3ME ma wyjątek dla przewoźników DPD/MGS, gdzie
+    // to ono jest właściwym polem (patrz clients/3me.js -> selectDeliveryDate).
+    row.loadingDate = parseNumericDate(row['LOADING DATE']);
     row.physicalShipDate = parseNumericDate(row.PHYSICAL_SHIP_DATE);
     row.confirmedDate = parseNumericDate(row.CONFIRMED_DATE);
     row.OBD_LINE = Number(row.OBD_LINE) || 0;
