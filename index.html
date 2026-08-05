@@ -63,7 +63,7 @@
             </div>
             <div
               class="date-filter"
-              title="Filtruje po skorygowanej dacie wysyłki (AdjustedExpectedDate — uwzględnia przewoźnika i korektę weekendową), nie po surowym EXPECTED_SHIP_DATE z pliku."
+              title="Filtruje po skorygowanej dacie wysyłki (AdjustedExpectedDate — uwzględnia przewoźnika i korektę weekendową), nie po surowym EXPECTED_SHIP_DATE z pliku. Obie daty włącznie — pojedynczy dzień to zakres, gdzie „Od” i „Do” są takie same."
             >
               <svg
                 viewBox="0 0 24 24"
@@ -75,9 +75,16 @@
                 <path d="M3 10h18M8 3v4M16 3v4" />
               </svg>
               <div class="date-filter-inner">
-                <span class="date-filter-label">Data</span>
-                <input type="date" id="dateFilter" disabled />
+                <span class="date-filter-label">Od</span>
+                <input type="date" id="dateFromInput" disabled />
               </div>
+              <div class="date-filter-inner">
+                <span class="date-filter-label">Do</span>
+                <input type="date" id="dateToInput" disabled />
+              </div>
+              <button type="button" class="btn btn--sm" id="wholeMonthBtn" disabled>
+                Cały miesiąc
+              </button>
             </div>
             <span class="import-status" id="dateFilterHint"></span>
             <div
