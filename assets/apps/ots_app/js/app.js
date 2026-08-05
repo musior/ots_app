@@ -1,24 +1,29 @@
 import { client3me } from './clients/3me.js';
 import { clientSolventum } from './clients/solventum.js';
 import { parseObdCsvFile } from './csvParser.js';
-import { enrichLines, filterByAdjustedDate, adjustedDateRange } from './calcEngine.js';
+import { enrichLines, filterByAdjustedDateRange, adjustedDateRange } from './calcEngine.js';
 import * as reviewsStore from './reviewsStore.js';
 import { renderDashboard, renderEmptyDashboard } from './ui/dashboard.js';
 import { renderDelayedPanel, wireDelayedFilters } from './ui/delayedPanel.js';
 import { buildEmailReport } from './emailReport.js';
-import { previousBusinessDay, startOfToday, toDateInputValue, fromDateInputValue } from './dateUtils.js';
+import {
+  previousBusinessDay, startOfToday, startOfMonth, endOfMonth, toDateInputValue, fromDateInputValue, isSameDay,
+} from './dateUtils.js';
 
 const clients = [client3me, clientSolventum];
 
 // Stan trzymany osobno per klient — przełączanie zakładki (3ME/SLV) nie gubi
-// zaimportowanych danych ani wybranej daty filtra tego drugiego klienta.
+// zaimportowanych danych ani wybranego zakresu dat tego drugiego klienta. dateFrom/dateTo
+// to zakres (obie granice włącznie) — domyślnie pojedynczy dzień (from === to), ale
+// dashboard może pokazywać dowolnie szerszy okres, np. cały miesiąc.
 const state = new Map(
   clients.map((config) => [
     config.id,
     {
       config,
       enrichedLines: [],
-      selectedDate: previousBusinessDay(startOfToday()),
+      dateFrom: previousBusinessDay(startOfToday()),
+      dateTo: previousBusinessDay(startOfToday()),
       fileName: null,
     },
   ]),
@@ -32,7 +37,7 @@ function activeState() {
 
 function visibleLines() {
   const st = activeState();
-  return filterByAdjustedDate(st.enrichedLines, st.selectedDate);
+  return filterByAdjustedDateRange(st.enrichedLines, st.dateFrom, st.dateTo);
 }
 
 // Pełny render: wywoływany po imporcie pliku, po zmianie filtra daty i po
@@ -70,8 +75,8 @@ function updateDateFilterHint(count) {
     return;
   }
   hintEl.textContent = count > 0
-    ? `${count} ${count === 1 ? 'linia' : 'linii'} dla tej daty`
-    : 'Brak linii dla wybranej daty w zaimportowanym pliku';
+    ? `${count} ${count === 1 ? 'linia' : 'linii'} w wybranym zakresie`
+    : 'Brak linii w wybranym zakresie dat w zaimportowanym pliku';
 }
 
 function importStatusText(st) {
@@ -82,40 +87,65 @@ function refreshImportStatus() {
   document.getElementById('importStatus').textContent = importStatusText(activeState());
 }
 
-// Przycisk maila ma sens tylko wtedy, gdy dla aktywnego klienta w ogóle coś zaimportowano —
-// inaczej raport wyszedłby z samymi zerami. Czyścimy też status "skopiowano", żeby nie
-// wprowadzał w błąd po zmianie kontekstu (inny klient / inna data / nowy import).
+// Przycisk maila ma sens tylko wtedy, gdy dla aktywnego klienta w ogóle coś zaimportowano
+// (inaczej raport wyszedłby z samymi zerami) I wybrany jest DOKŁADNIE jeden dzień — szablon
+// maila (emailReport.js) mówi "Wynik OTS za dzień X", więc wysłanie go przy wybranym
+// zakresie (np. cały miesiąc) pokazywałoby mylącą, niepełną liczbę. Czyścimy też status
+// "skopiowano", żeby nie wprowadzał w błąd po zmianie kontekstu (klient / zakres / import).
 function refreshEmailButtonState() {
-  document.getElementById('emailBtn').disabled = activeState().enrichedLines.length === 0;
-  document.getElementById('emailStatus').textContent = '';
+  const st = activeState();
+  const btn = document.getElementById('emailBtn');
+  const statusEl = document.getElementById('emailStatus');
+  const isSingleDay = isSameDay(st.dateFrom, st.dateTo);
+
+  if (st.enrichedLines.length === 0) {
+    btn.disabled = true;
+    statusEl.textContent = '';
+  } else if (!isSingleDay) {
+    btn.disabled = true;
+    statusEl.textContent = 'Mail dotyczy jednego dnia — zawęź zakres dat ("Od"/"Do") do jednego dnia, żeby wysłać raport.';
+  } else {
+    btn.disabled = false;
+    statusEl.textContent = '';
+  }
 }
 
-// Przycina zapamiętaną datę filtra danego klienta do zakresu jego własnych danych —
+// Przycina zapamiętany zakres dat danego klienta do zakresu jego własnych danych —
 // czysta operacja na stanie, bez dotykania DOM. Musi działać dla KAŻDEGO importowanego
 // klienta, niezależnie od tego, który jest akurat aktywną zakładką.
-function clampSelectedDate(st) {
+function clampDateRange(st) {
   const range = adjustedDateRange(st.enrichedLines);
-  if (range && (st.selectedDate < range.min || st.selectedDate > range.max)) {
-    st.selectedDate = range.max;
+  if (range) {
+    if (st.dateFrom < range.min || st.dateFrom > range.max) st.dateFrom = range.max;
+    if (st.dateTo < range.min || st.dateTo > range.max) st.dateTo = range.max;
+    if (st.dateFrom > st.dateTo) st.dateTo = st.dateFrom;
   }
   return range;
 }
 
-// Odzwierciedla w DOM (wspólny input daty) stan PODANEGO klienta — wolno wywoływać
+// Odzwierciedla w DOM (wspólne inputy "Od"/"Do") stan PODANEGO klienta — wolno wywoływać
 // tylko dla aktualnie aktywnej zakładki, inaczej nadpiszemy widoczny filtr danymi
 // klienta, który nie jest teraz wyświetlany.
-function syncDateFilterInput(st) {
-  const input = document.getElementById('dateFilter');
-  const range = clampSelectedDate(st);
+function syncDateRangeInputs(st) {
+  const fromInput = document.getElementById('dateFromInput');
+  const toInput = document.getElementById('dateToInput');
+  const monthBtn = document.getElementById('wholeMonthBtn');
+  const range = clampDateRange(st);
   if (!range) {
-    input.disabled = true;
-    input.value = '';
+    fromInput.disabled = true;
+    toInput.disabled = true;
+    monthBtn.disabled = true;
+    fromInput.value = '';
+    toInput.value = '';
     return;
   }
-  input.disabled = false;
-  input.min = toDateInputValue(range.min);
-  input.max = toDateInputValue(range.max);
-  input.value = toDateInputValue(st.selectedDate);
+  fromInput.disabled = false;
+  toInput.disabled = false;
+  monthBtn.disabled = false;
+  fromInput.min = toInput.min = toDateInputValue(range.min);
+  fromInput.max = toInput.max = toDateInputValue(range.max);
+  fromInput.value = toDateInputValue(st.dateFrom);
+  toInput.value = toDateInputValue(st.dateTo);
 }
 
 // Dopasowuje plik do klienta po numerze raportu zaszytym w nazwie pliku
@@ -145,7 +175,7 @@ async function handleFiles(fileList) {
       const rows = await parseObdCsvFile(file, config.csv);
       st.enrichedLines = enrichLines(rows, config);
       st.fileName = file.name;
-      clampSelectedDate(st);
+      clampDateRange(st);
     } catch (err) {
       console.error(err);
       st.enrichedLines = [];
@@ -157,10 +187,10 @@ async function handleFiles(fileList) {
     console.warn('Pominięto pliki bez rozpoznanego klienta:', unmatched.map((m) => m.file.name));
   }
 
-  // DOM (input daty + status importu + dashboard) zawsze synchronizujemy tylko z danymi
+  // DOM (inputy daty + status importu + dashboard) zawsze synchronizujemy tylko z danymi
   // aktualnie aktywnej zakładki — dane drugiego klienta zostają zapisane w stanie
-  // (już przycięte przez clampSelectedDate powyżej) i pokażą się po przełączeniu na niego.
-  syncDateFilterInput(activeState());
+  // (już przycięte przez clampDateRange powyżej) i pokażą się po przełączeniu na niego.
+  syncDateRangeInputs(activeState());
   refreshImportStatus();
   renderAll();
 }
@@ -208,10 +238,13 @@ function wireEmailButton() {
     const st = activeState();
     if (st.enrichedLines.length === 0) return;
 
+    // Raport mailowy ma format "za jeden dzień" (patrz emailReport.js) — trzymamy się
+    // dateFrom, co jest bezpieczne, bo refreshEmailButtonState() blokuje ten przycisk,
+    // gdy wybrany jest zakres szerszy niż jeden dzień.
     const { subject, textBody, htmlBody } = buildEmailReport({
       config: st.config,
       enrichedLines: st.enrichedLines,
-      selectedDate: st.selectedDate,
+      selectedDate: st.dateFrom,
       reviewsByObd: reviewsStore.getAllReviews(activeClientId),
     });
 
@@ -229,12 +262,43 @@ function wireEmailButton() {
   });
 }
 
-function wireDateFilter() {
-  const input = document.getElementById('dateFilter');
-  input.addEventListener('change', () => {
-    const parsed = fromDateInputValue(input.value);
+function wireDateRangeFilter() {
+  const fromInput = document.getElementById('dateFromInput');
+  const toInput = document.getElementById('dateToInput');
+  const monthBtn = document.getElementById('wholeMonthBtn');
+
+  fromInput.addEventListener('change', () => {
+    const parsed = fromDateInputValue(fromInput.value);
     if (!parsed) return;
-    activeState().selectedDate = parsed;
+    const st = activeState();
+    st.dateFrom = parsed;
+    if (st.dateFrom > st.dateTo) st.dateTo = st.dateFrom;
+    syncDateRangeInputs(st);
+    renderAll();
+  });
+
+  toInput.addEventListener('change', () => {
+    const parsed = fromDateInputValue(toInput.value);
+    if (!parsed) return;
+    const st = activeState();
+    st.dateTo = parsed;
+    if (st.dateTo < st.dateFrom) st.dateFrom = st.dateTo;
+    syncDateRangeInputs(st);
+    renderAll();
+  });
+
+  // Rozszerza zakres do całego miesiąca kalendarzowego zawierającego aktualne "Od"
+  // (przycięte do dostępnego zakresu danych — patrz clampDateRange).
+  monthBtn.addEventListener('click', () => {
+    const st = activeState();
+    const range = adjustedDateRange(st.enrichedLines);
+    if (!range) return;
+    const anchor = st.dateFrom; // miesiąc liczymy względem "Od", tak jak przed kliknięciem
+    const monthStart = startOfMonth(anchor);
+    const monthEnd = endOfMonth(anchor);
+    st.dateFrom = monthStart < range.min ? range.min : monthStart;
+    st.dateTo = monthEnd > range.max ? range.max : monthEnd;
+    syncDateRangeInputs(st);
     renderAll();
   });
 }
@@ -249,7 +313,7 @@ function switchClient(clientId) {
   document.getElementById('titleName').textContent = activeState().config.name;
   document.title = `OTS · On Time Shipment — ${activeState().config.name}`;
 
-  syncDateFilterInput(activeState());
+  syncDateRangeInputs(activeState());
   refreshImportStatus();
   renderAll();
 }
@@ -279,7 +343,7 @@ function wireTheme() {
 }
 
 wireImport();
-wireDateFilter();
+wireDateRangeFilter();
 wireEmailButton();
 wireRail();
 wireTabs();
