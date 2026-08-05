@@ -54,12 +54,22 @@ export function computeAdjustedExpectedDate(row, config) {
 }
 
 // --- Krok 2: DELAY_STATUS --------------------------------------------------
-export function computeDelayStatus(adjustedExpectedDate, physicalShipDate, today) {
+// Porównanie robi się z "datą dostawy" wybraną przez selectDeliveryDate (domyślnie
+// LOADING DATE, nie PHYSICAL_SHIP_DATE — patrz csvParser.js/row.loadingDate) — to
+// świadoma korekta logiki, bo LOADING DATE jest właściwą datą do oceny terminowości.
+export function computeDelayStatus(adjustedExpectedDate, deliveryDate, today) {
   if (!adjustedExpectedDate) return null;
-  if (adjustedExpectedDate >= today && !physicalShipDate) return 'OK';
-  if (physicalShipDate && physicalShipDate <= adjustedExpectedDate) return 'OK';
-  if (!physicalShipDate) return 'Zamówienie potwierdzone';
+  if (adjustedExpectedDate >= today && !deliveryDate) return 'OK';
+  if (deliveryDate && deliveryDate <= adjustedExpectedDate) return 'OK';
+  if (!deliveryDate) return 'Zamówienie potwierdzone';
   return 'DELAY';
+}
+
+// Domyślny wybór pola daty do porównania z AdjustedExpectedDate — LOADING DATE.
+// Config klienta może to nadpisać (patrz clients/3me.js -> selectDeliveryDate: dla
+// przewoźników DPD/MGS 3ME chce PHYSICAL_SHIP_DATE zamiast LOADING DATE).
+export function selectDeliveryDate(row) {
+  return row.loadingDate;
 }
 
 // --- Krok 3: PL / EU / NON EU ----------------------------------------------
@@ -76,7 +86,8 @@ export function enrichLine(row, config, today) {
   // (patrz clients/solventum.js), reszta silnika (DELAY_STATUS, region, KPI) zostaje wspólna.
   const computeDate = config.computeAdjustedExpectedDate || computeAdjustedExpectedDate;
   const adjustedExpectedDate = computeDate(row, config);
-  const delayStatus = computeDelayStatus(adjustedExpectedDate, row.physicalShipDate, today);
+  const pickDeliveryDate = config.selectDeliveryDate || selectDeliveryDate;
+  const delayStatus = computeDelayStatus(adjustedExpectedDate, pickDeliveryDate(row), today);
   const region = computeRegion(row, config);
   return { ...row, adjustedExpectedDate, delayStatus, region };
 }
@@ -188,7 +199,7 @@ export function linesNeedingReview(lines) {
 // (OBD_LINE), ale w panelu "Opóźnione linie" ocenia się go jako całość: jeden
 // kod przyczyny + jedna wina na cały OBD, a nie osobno na każdą linię.
 // Zakłada, że pola istotne dla statusu (CARRIER, COUNTRY, EXPECTED_SHIP_DATE,
-// PHYSICAL_SHIP_DATE) są wspólne dla wszystkich linii tego samego OBD — tak jest
+// LOADING DATE) są wspólne dla wszystkich linii tego samego OBD — tak jest
 // w źródłowym raporcie, bo dotyczą całej przesyłki, nie pojedynczej pozycji.
 export function groupNeedingReviewByObd(lines) {
   const map = new Map();
@@ -216,6 +227,20 @@ export function groupNeedingReviewByObd(lines) {
 export function filterByAdjustedDate(lines, date) {
   if (!date) return lines;
   return lines.filter((l) => isSameDay(l.adjustedExpectedDate, date));
+}
+
+// Zakres dat (obie granice włącznie, po AdjustedExpectedDate) — dashboard używa tego
+// zamiast filterByAdjustedDate, żeby pokazać wyniki (KPI, tabela krajów, powody, panel
+// "Opóźnione linie") za dowolny okres, np. cały miesiąc, nie tylko jeden dzień. Pojedynczy
+// dzień to po prostu zakres, gdzie from === to.
+export function filterByAdjustedDateRange(lines, from, to) {
+  if (!from && !to) return lines;
+  return lines.filter((l) => {
+    if (!l.adjustedExpectedDate) return false;
+    if (from && l.adjustedExpectedDate < from) return false;
+    if (to && l.adjustedExpectedDate > to) return false;
+    return true;
+  });
 }
 
 // Linie z tego samego miesiąca kalendarzowego co podana data (po AdjustedExpectedDate) —
