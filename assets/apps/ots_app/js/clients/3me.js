@@ -5,6 +5,15 @@
 
 import { sharedReasonCodes } from './reasonCodes.js';
 
+// Wyjątek tylko dla 3ME: gdy CARRIER to dokładnie DPD lub MGS, DELAY_STATUS porównujemy
+// z PHYSICAL_SHIP_DATE zamiast domyślnego LOADING DATE (patrz calcEngine.selectDeliveryDate).
+// Solventum tego wyjątku nie ma — zostaje przy domyślnym zachowaniu silnika.
+function selectDeliveryDate3me(row) {
+  const carrier = row.CARRIER ? String(row.CARRIER).trim().toUpperCase() : '';
+  if (carrier === 'DPD' || carrier === 'MGS') return row.physicalShipDate;
+  return row.loadingDate;
+}
+
 export const client3me = {
   id: '3me',
   name: '3ME',
@@ -37,6 +46,8 @@ export const client3me = {
     group3: ['UKS', 'GRU', 'AZB', 'KYI', 'UKR', 'LOT', 'ODB', 'TAD'], // +3 dni
   },
   litKeyword: 'LIT',
+
+  selectDeliveryDate: selectDeliveryDate3me,
 
   // Krok 3 z Power Query — lista krajów UE (dokładnie te teksty, bez polskich znaków,
   // bo tak są zapisane w NAME_COUNTRY źródłowego raportu).
