@@ -4,6 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>OTS · On Time Shipment — 3ME</title>
+    <script>
+      // Ustawia motyw SYNCHRONICZNIE, przed narysowaniem strony, żeby uniknąć mignięcia
+      // złym motywem — stąd inline <script> przed arkuszem stylów, nie moduł w app.js.
+      // "cp-theme" to wspólny klucz localStorage aplikacji-hosta (w której ten moduł
+      // będzie osadzany) — jeśli go nie ma, spadamy na preferencję systemową.
+      (function () {
+        var t = localStorage.getItem("cp-theme");
+        if (!t) t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
+      })();
+    </script>
     <link
       rel="stylesheet"
       href="/assets/apps/ots_app/css/styles.css?version=1.0.0"

@@ -335,10 +335,44 @@ function wireTabs() {
   });
 }
 
+// Wspólny z aplikacją-hostem klucz localStorage — motyw ma być jeden dla całej aplikacji,
+// nie osobny dla tego modułu. Wartość początkowa jest już ustawiona synchronicznie przez
+// inline <script> w <head> (index.html), więc tutaj tylko piszemy zmiany i nasłuchujemy
+// zmian z zewnątrz.
+const THEME_STORAGE_KEY = 'cp-theme';
+
+function currentTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+}
+
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem(THEME_STORAGE_KEY, theme);
+}
+
 function wireTheme() {
-  const root = document.documentElement;
-  document.getElementById('themeToggle').addEventListener('click', () => {
-    root.setAttribute('data-theme', root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  const toggleBtn = document.getElementById('themeToggle');
+
+  // W Fiege Cloud appka żyje w iframe hosta, który ma własny, zawsze widoczny przełącznik
+  // motywu (współdzielący z nami "cp-theme") — nasz byłby zdublowanym UI, więc go chowamy.
+  // Przy standalone developmencie (Live Server, bez hosta) window.self === window.top,
+  // więc przycisk zostaje widoczny i działa — jedyny sposób na przełączenie motywu bez hosta.
+  const isEmbedded = window.self !== window.top;
+  if (isEmbedded) {
+    toggleBtn.hidden = true;
+  } else {
+    toggleBtn.addEventListener('click', () => {
+      setTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+    });
+  }
+
+  // "storage" odpala się tylko w INNYCH kontekstach przeglądarki (np. host-aplikacja
+  // współdzieląca ten sam localStorage), nigdy w tym, który sam zapisał — więc to
+  // synchronizacja Z ZEWNĄTRZ, gdyby ktoś przełączył motyw poza tym modułem.
+  window.addEventListener('storage', (e) => {
+    if (e.key === THEME_STORAGE_KEY && (e.newValue === 'dark' || e.newValue === 'light')) {
+      document.documentElement.setAttribute('data-theme', e.newValue);
+    }
   });
 }
 
