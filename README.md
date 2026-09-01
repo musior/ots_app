@@ -1,9 +1,12 @@
 # OTS — On Time Shipment (klienci: 3ME, Solventum)
 
-Frontend + logika liczenia wskaźnika OTS, na razie bez backendu — zapisane oceny
-linii ("kod przyczyny" + "wina") trzymane są w `localStorage` przeglądarki
-(`js/reviewsStore.js`). Docelowo tylko ta jedna warstwa zostanie podmieniona na
-wywołania do backendu.
+Frontend + logika liczenia wskaźnika OTS. Zapisane oceny linii ("kod przyczyny" + "wina")
+żyją WYŁĄCZNIE w backendzie (`/api/apps/spa/ots-daily`, patrz `js/backend/otsDailyApi.js`)
+— `js/reviewsStore.js` trzyma je tylko w pamięci na czas sesji, hydratowane z backendu przy
+każdym imporcie pliku. Świadoma decyzja: dopóki nikt nie kliknie "Wyślij raport mailem" (ten
+przycisk zapisuje dzień do backendu I wysyła maila naraz — patrz niżej), oceny zrobione w
+danej sesji **nie przetrwają** odświeżenia strony ani ponownego importu — `localStorage`
+celowo nie jest już używany jako bufor/fallback.
 
 ## Uruchomienie
 
@@ -37,15 +40,34 @@ modułów przez CORS. Trzeba odpalić lokalny serwer statyczny, np.:
   3ME/SLV nie gubi danych. Domyślnie `dateFrom === dateTo` (jeden dzień — poprzedni dzień roboczy),
   przycisk "Cały miesiąc" rozszerza zakres do miesiąca kalendarzowego. Przycisk maila jest zablokowany,
   gdy zakres to więcej niż jeden dzień — szablon maila zakłada pojedynczy dzień (patrz `js/emailReport.js`).
-- `js/reviewsStore.js` — zapis ocenionych linii, osobno per klient (dziś: localStorage)
-- `js/emailReport.js` — buduje temat/treść raportu OTS do wysyłki mailem (przycisk "Wyślij raport
-  mailem"). Wszystkie liczby w tym raporcie to **OTS Gross** (surowy, bez uwzględniania zapisanych
-  powodów opóźnień) — inaczej niż karta "OTS Total Net" w dashboardzie. Zwraca zarówno wersję
-  tekstową (tabulatory, fallback), jak i HTML (prawdziwe `<table>`) — `js/app.js` zapisuje OBIE
+- `js/reviewsStore.js` — oceny linii w pamięci (nie localStorage!), osobno per klient. Publiczne
+  API (`getAllReviews`/`getReview`/`saveReview`/`deleteReview`) zostało bez zmian względem
+  wersji na localStorage — `js/ui/delayedPanel.js` nie musiał się zmienić. Doszła
+  `hydrateFromBackend(clientId, reviewsByObd)`, nadpisująca cały stan danymi z serwera.
+- `js/backend/otsDailyApi.js` — klient `/api/apps/spa/ots-daily`: `upsertDailyResult` zapisuje
+  jeden wiersz per (`department`, `report_date`) z polami rdzeniowymi (`total_lines`,
+  `gross_on_time_lines`, `net_on_time_lines`) ustalonymi z KG, a WSZYSTKO inne (`countries`,
+  `reasons`, `delayedLines` — pełny stan panelu "Opóźnione linie", patrz
+  `calcEngine.buildDelayedLinesSnapshot`) w polu `meta` jako zserializowany JSON. `id` nadaje
+  backend (autoincrement, brak filtrowanego GET) — `fetchAllRows` ściąga WSZYSTKIE strony
+  (endpoint jest paginowany, `per_page` domyślnie 50) i filtrujemy/szukamy w JS.
+  `fetchDelayedLinesReviews(department)` odtwarza `reviewsByObd` ze wszystkich zapisanych dni —
+  wołane w `js/app.js` (`handleFiles`) przy każdym imporcie, żeby hydratować `reviewsStore`.
+- `js/emailReport.js` — buduje temat/adresatów/treść raportu OTS do wysyłki mailem. Adresaci
+  ("Do", nie "DW") to stała lista (`REPORT_TO_RECIPIENTS`), jednakowa dla obu klientów.
+  Wszystkie liczby w treści to **OTS Gross** (surowy, bez uwzględniania zapisanych powodów
+  opóźnień) — inaczej niż karta "OTS Total Net" w dashboardzie. Zwraca zarówno wersję tekstową
+  (tabulatory, fallback), jak i HTML (prawdziwe `<table>`) — `js/app.js` zapisuje OBIE
   równolegle do schowka przez `ClipboardItem`, dzięki czemu wklejenie w Outlooku (Ctrl+V) daje
-  sformatowaną tabelę, a nie tekst z tabulatorami. `mailto:` otwiera tylko pusty mail z tematem
-  (świadomie bez `body=...` — przy tabeli krajów łatwo przekroczyć praktyczny limit długości linku
-  `mailto:` i Outlook obciąłby treść bez ostrzeżenia), więc wysyłający musi wkleić.
+  sformatowaną tabelę, a nie tekst z tabulatorami. `mailto:` otwiera tylko pusty mail z
+  adresatami+tematem (adresaci idą bezpośrednio po `mailto:`, nie jako `?to=...` — to nie jest
+  parametr zdefiniowany w RFC 6068; świadomie bez `body=...` — przy tabeli krajów łatwo
+  przekroczyć praktyczny limit długości linku `mailto:` i Outlook obciąłby treść bez
+  ostrzeżenia), więc wysyłający musi wkleić. Przycisk "Wyślij
+  raport mailem" w `js/app.js` (`wireEmailButton`) robi to WSZYSTKO na raz z jednego kliknięcia:
+  najpierw zapisuje dzień do backendu (`otsDailyApi.upsertDailyResult`), potem kopiuje treść do
+  schowka, potem otwiera maila — status przy przycisku pokazuje wynik obu kroków (zapis może się
+  nie udać niezależnie od kopiowania, i odwrotnie).
 - `js/ui/` — renderowanie dashboardu (karty KPI, tabela krajów) i panelu opóźnionych linii
 - `data/` — przykładowe pliki OBD do testów lokalnych (w `.gitignore`, nigdy nie trafiają do repo)
 
