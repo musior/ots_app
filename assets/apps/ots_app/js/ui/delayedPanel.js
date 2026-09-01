@@ -1,18 +1,11 @@
 import { groupNeedingReviewByObd } from '../calcEngine.js';
 import * as reviewsStore from '../reviewsStore.js';
+import { currentUserFullName } from '../xcloudUser.js';
 
 let currentGroups = [];
 let currentConfig = null;
 let currentClientId = null;
 let onChangeCallback = null;
-
-// Login zalogowanego w Fiege Cloud użytkownika (patrz index.html -> window.xcloud) — kto
-// faktycznie uzupełnił dany powód, nie tylko kto na końcu kliknął "Wyślij raport mailem"
-// (to osobny login, zapisywany przy okazji zapisu całego dnia — patrz app.js/otsDailyApi.js).
-// Fallback "Ty" tylko przy standalone developmencie (Live Server, bez hosta).
-function currentUsername() {
-  return window.xcloud?.account?.username ?? 'Ty';
-}
 
 function statusLabel(delayStatus) {
   if (delayStatus === 'DELAY') return { text: 'Opóźnienie', cls: 'bad' };
@@ -135,7 +128,7 @@ function buildRow(group) {
     const owner = tr.querySelector('.owner-btn[aria-pressed="true"]')?.dataset.owner;
     if (!select.value || !owner) return;
     const savedReview = reviewsStore.saveReview(currentClientId, group.obd, {
-      reasonCode: select.value, faultOwner: owner, reviewedBy: currentUsername(),
+      reasonCode: select.value, faultOwner: owner, reviewedBy: currentUserFullName('Ty'),
     });
     lockRow(tr, savedReview);
     updateStats();
@@ -232,7 +225,7 @@ function wireBulkBar() {
 
     for (const tr of selectedRows()) {
       const savedReview = reviewsStore.saveReview(currentClientId, tr.dataset.obd, {
-        reasonCode, faultOwner, reviewedBy: currentUsername(),
+        reasonCode, faultOwner, reviewedBy: currentUserFullName('Ty'),
       });
       lockRow(tr, savedReview);
       tr.querySelector('.row-select').checked = false;
