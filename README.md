@@ -40,6 +40,12 @@ modułów przez CORS. Trzeba odpalić lokalny serwer statyczny, np.:
   3ME/SLV nie gubi danych. Domyślnie `dateFrom === dateTo` (jeden dzień — poprzedni dzień roboczy),
   przycisk "Cały miesiąc" rozszerza zakres do miesiąca kalendarzowego. Przycisk maila jest zablokowany,
   gdy zakres to więcej niż jeden dzień — szablon maila zakłada pojedynczy dzień (patrz `js/emailReport.js`).
+- `js/xcloudUser.js` — `currentUserFullName(fallback)`: login zalogowanego w Fiege Cloud
+  użytkownika. Appka żyje w iframe hosta, więc `xcloud` siedzi na `window.parent`, nie na
+  `window` (patrz `account.fullname`, nie `account.username`) — owinięte w try/catch, bo
+  cross-origin host rzuciłby `SecurityError` przy samym odczycie, nie tylko zwrócił `undefined`.
+  Używane przy zapisie pojedynczej oceny (`js/ui/delayedPanel.js`) i przy zapisie całego dnia
+  (`js/app.js` -> `otsDailyApi.upsertDailyResult`, pole `performedBy`).
 - `js/reviewsStore.js` — oceny linii w pamięci (nie localStorage!), osobno per klient. Publiczne
   API (`getAllReviews`/`getReview`/`saveReview`/`deleteReview`) zostało bez zmian względem
   wersji na localStorage — `js/ui/delayedPanel.js` nie musiał się zmienić. Doszła
