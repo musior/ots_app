@@ -67,7 +67,7 @@ function findRow(rows, department, reportDate) {
 // tego dnia (łącznie z jeszcze nieocenionymi liniami) — pozwala docelowo odtworzyć panel i
 // Net z danych na serwerze, nie tylko z localStorage jednej przeglądarki (patrz reviewsStore.js).
 export async function upsertDailyResult({
-  department, reportDate, totalLines, grossOnTimeLines, netOnTimeLines, countries, reasons, delayedLines, username,
+  department, reportDate, totalLines, grossOnTimeLines, netOnTimeLines, countries, reasons, delayedLines, performedBy,
 }) {
   const rows = await fetchAllRows();
   const existing = findRow(rows, department, reportDate);
@@ -78,8 +78,8 @@ export async function upsertDailyResult({
     reasons,
     delayedLines,
     ...(existing
-      ? { updated_by: username, updated_at: new Date().toISOString() }
-      : { created_by: username }),
+      ? { updated_by: performedBy, updated_at: new Date().toISOString() }
+      : { created_by: performedBy }),
   };
 
   const body = {
