@@ -1,42 +1,46 @@
-// Warstwa zapisu ocenionych OBD ("kod przyczyny" + "wina") — ocena dotyczy
-// całego OBD (może obejmować kilka linii/OBD_LINE), nie pojedynczego wiersza.
-// Dziś: localStorage, per klient. Docelowo backend zastąpi wyłącznie treść
-// tych funkcji (fetch zamiast localStorage) — reszta aplikacji się nie zmienia.
+// Warstwa przechowywania ocenionych OBD ("kod przyczyny" + "wina") — WYŁĄCZNIE w pamięci
+// (nie localStorage). Stan jest hydratowany z backendu przy każdym imporcie pliku (patrz
+// js/app.js -> handleFiles, js/backend/otsDailyApi.js -> fetchDelayedLinesReviews) i żyje
+// tylko do najbliższego przeładowania strony / kolejnego importu. Trwały zapis z powrotem
+// do backendu dzieje się osobno, dopiero przy jawnym zapisie dnia (przycisk "Zapis do API" /
+// docelowo wysyłka maila) — dopóki ktoś tego nie kliknie, oceny zrobione w tej sesji
+// istnieją TYLKO w pamięci przeglądarki i giną przy odświeżeniu strony czy zamknięciu karty.
+//
+// Ocena dotyczy całego OBD (może obejmować kilka linii/OBD_LINE), nie pojedynczego wiersza.
 
-const KEY_PREFIX = 'ots_reviews_';
+const storeByClient = new Map();
 
-function storageKey(clientId) {
-  return `${KEY_PREFIX}${clientId}`;
+function storeFor(clientId) {
+  if (!storeByClient.has(clientId)) storeByClient.set(clientId, {});
+  return storeByClient.get(clientId);
 }
 
 export function getAllReviews(clientId) {
-  try {
-    const raw = localStorage.getItem(storageKey(clientId));
-    return raw ? JSON.parse(raw) : {};
-  } catch (err) {
-    console.error('Nie udało się odczytać zapisanych recenzji z localStorage', err);
-    return {};
-  }
+  return { ...storeFor(clientId) };
 }
 
 export function getReview(clientId, obd) {
-  return getAllReviews(clientId)[obd] || null;
+  return storeFor(clientId)[obd] || null;
 }
 
 export function saveReview(clientId, obd, { reasonCode, faultOwner, reviewedBy = 'Ty' }) {
-  const all = getAllReviews(clientId);
-  all[obd] = {
+  const store = storeFor(clientId);
+  store[obd] = {
     reasonCode,
     faultOwner,
     reviewedBy,
     reviewedAt: new Date().toISOString(),
   };
-  localStorage.setItem(storageKey(clientId), JSON.stringify(all));
-  return all[obd];
+  return store[obd];
 }
 
 export function deleteReview(clientId, obd) {
-  const all = getAllReviews(clientId);
-  delete all[obd];
-  localStorage.setItem(storageKey(clientId), JSON.stringify(all));
+  delete storeFor(clientId)[obd];
+}
+
+// Nadpisuje CAŁY stan ocen dla klienta danymi z backendu — wołane przy imporcie pliku.
+// Celowo nadpisuje, nie scala: import ma pokazać dokładnie to, co jest zapisane po stronie
+// serwera, a nie mieszankę starego stanu w pamięci (np. z poprzedniego importu) z nowym.
+export function hydrateFromBackend(clientId, reviewsByObd) {
+  storeByClient.set(clientId, { ...reviewsByObd });
 }

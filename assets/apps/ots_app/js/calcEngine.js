@@ -221,6 +221,28 @@ export function groupNeedingReviewByObd(lines) {
   return [...map.values()];
 }
 
+// Pełny stan panelu "Opóźnione linie" (kraj, WMS Order, OBD, liczba linii, status algorytmu,
+// kod przyczyny, wina, kto/kiedy ocenił) — jeden wpis na OBD, łącznie z jeszcze NIE ocenionymi
+// (reasonCode/faultOwner = null). Używane przy zapisie dnia do backendu (patrz
+// js/backend/otsDailyApi.js), żeby dało się później odtworzyć panel i wynik Net z danych
+// zapisanych po stronie serwera, nie tylko z localStorage tej jednej przeglądarki.
+export function buildDelayedLinesSnapshot(lines, reviewsByObd) {
+  return groupNeedingReviewByObd(lines).map((group) => {
+    const review = reviewsByObd[group.obd];
+    return {
+      obd: group.obd,
+      wmsOrder: group.wmsOrder,
+      country: group.country,
+      lineCount: group.lineCount,
+      algorithmStatus: group.delayStatus,
+      reasonCode: review?.reasonCode ?? null,
+      faultOwner: review?.faultOwner ?? null,
+      reviewedBy: review?.reviewedBy ?? null,
+      reviewedAt: review?.reviewedAt ?? null,
+    };
+  });
+}
+
 // --- Filtr daty na dashboardzie ---------------------------------------------
 // Ważne: filtrujemy po AdjustedExpectedDate (data po korekcie przewoźnika/weekendu),
 // NIE po surowym EXPECTED_SHIP_DATE z pliku — tak jak w Power BI.
@@ -243,14 +265,20 @@ export function filterByAdjustedDateRange(lines, from, to) {
   });
 }
 
-// Linie z tego samego miesiąca kalendarzowego co podana data (po AdjustedExpectedDate) —
-// używane do wyników miesięcznych w raporcie mailowym (js/emailReport.js).
-export function filterByAdjustedMonth(lines, date) {
+// Linie od 1. dnia miesiąca zawierającego podaną datę do TEJ daty włącznie (month-to-date,
+// po AdjustedExpectedDate) — używane do wyników miesięcznych w raporcie mailowym
+// (js/emailReport.js). Celowo NIE cały miesiąc kalendarzowy: raport OBD obejmuje ~3 miesiące
+// do przodu, więc przyszłe, jeszcze niewydarzone wysyłki obniżałyby wskaźnik OTS, mimo że
+// nic się jeszcze nie spóźniło.
+export function filterByAdjustedMonthToDate(lines, date) {
   if (!date) return lines;
   const year = date.getFullYear();
   const month = date.getMonth();
   return lines.filter(
-    (l) => l.adjustedExpectedDate && l.adjustedExpectedDate.getFullYear() === year && l.adjustedExpectedDate.getMonth() === month,
+    (l) => l.adjustedExpectedDate
+      && l.adjustedExpectedDate.getFullYear() === year
+      && l.adjustedExpectedDate.getMonth() === month
+      && l.adjustedExpectedDate <= date,
   );
 }
 

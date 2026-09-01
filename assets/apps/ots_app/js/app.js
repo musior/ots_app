@@ -1,14 +1,32 @@
-import { client3me } from './clients/3me.js';
-import { clientSolventum } from './clients/solventum.js';
-import { parseObdCsvFile } from './csvParser.js';
-import { enrichLines, filterByAdjustedDateRange, adjustedDateRange } from './calcEngine.js';
-import * as reviewsStore from './reviewsStore.js';
-import { renderDashboard, renderEmptyDashboard } from './ui/dashboard.js';
-import { renderDelayedPanel, wireDelayedFilters } from './ui/delayedPanel.js';
-import { buildEmailReport } from './emailReport.js';
+import { client3me } from "./clients/3me.js";
+import { clientSolventum } from "./clients/solventum.js";
+import { parseObdCsvFile } from "./csvParser.js";
 import {
-  previousBusinessDay, startOfToday, startOfMonth, endOfMonth, toDateInputValue, fromDateInputValue, isSameDay,
-} from './dateUtils.js';
+  enrichLines,
+  filterByAdjustedDateRange,
+  adjustedDateRange,
+  calculateKpis,
+  calculateCountryBreakdown,
+  calculateReasonBreakdown,
+  buildDelayedLinesSnapshot,
+} from "./calcEngine.js";
+import * as reviewsStore from "./reviewsStore.js";
+import { renderDashboard, renderEmptyDashboard } from "./ui/dashboard.js";
+import { renderDelayedPanel, wireDelayedFilters } from "./ui/delayedPanel.js";
+import { buildEmailReport } from "./emailReport.js";
+import {
+  upsertDailyResult,
+  fetchDelayedLinesReviews,
+} from "./backend/otsDailyApi.js";
+import {
+  previousBusinessDay,
+  startOfToday,
+  startOfMonth,
+  endOfMonth,
+  toDateInputValue,
+  fromDateInputValue,
+  isSameDay,
+} from "./dateUtils.js";
 
 const clients = [client3me, clientSolventum];
 
@@ -51,13 +69,22 @@ function renderAll() {
   } else {
     refreshDashboard(lines);
   }
-  renderDelayedPanel({ lines, config: activeState().config, clientId: activeClientId, onChange: refreshDashboardAfterReview });
+  renderDelayedPanel({
+    lines,
+    config: activeState().config,
+    clientId: activeClientId,
+    onChange: refreshDashboardAfterReview,
+  });
   updateDateFilterHint(lines.length);
   refreshEmailButtonState();
 }
 
 function refreshDashboard(lines) {
-  renderDashboard({ lines, reviewsByObd: reviewsStore.getAllReviews(activeClientId), config: activeState().config });
+  renderDashboard({
+    lines,
+    reviewsByObd: reviewsStore.getAllReviews(activeClientId),
+    config: activeState().config,
+  });
 }
 
 // Wywoływane po zapisaniu/edycji oceny w panelu "Opóźnione linie". Odświeża
@@ -69,22 +96,26 @@ function refreshDashboardAfterReview() {
 }
 
 function updateDateFilterHint(count) {
-  const hintEl = document.getElementById('dateFilterHint');
+  const hintEl = document.getElementById("dateFilterHint");
   if (activeState().enrichedLines.length === 0) {
-    hintEl.textContent = '';
+    hintEl.textContent = "";
     return;
   }
-  hintEl.textContent = count > 0
-    ? `${count} ${count === 1 ? 'linia' : 'linii'} w wybranym zakresie`
-    : 'Brak linii w wybranym zakresie dat w zaimportowanym pliku';
+  hintEl.textContent =
+    count > 0
+      ? `${count} ${count === 1 ? "linia" : "linii"} w wybranym zakresie`
+      : "Brak linii w wybranym zakresie dat w zaimportowanym pliku";
 }
 
 function importStatusText(st) {
-  return st.fileName ? `${st.fileName} · ${st.enrichedLines.length} linii` : 'Brak zaimportowanych danych';
+  return st.fileName
+    ? `${st.fileName} · ${st.enrichedLines.length} linii`
+    : "Brak zaimportowanych danych";
 }
 
 function refreshImportStatus() {
-  document.getElementById('importStatus').textContent = importStatusText(activeState());
+  document.getElementById("importStatus").textContent =
+    importStatusText(activeState());
 }
 
 // Przycisk maila ma sens tylko wtedy, gdy dla aktywnego klienta w ogóle coś zaimportowano
@@ -94,19 +125,20 @@ function refreshImportStatus() {
 // "skopiowano", żeby nie wprowadzał w błąd po zmianie kontekstu (klient / zakres / import).
 function refreshEmailButtonState() {
   const st = activeState();
-  const btn = document.getElementById('emailBtn');
-  const statusEl = document.getElementById('emailStatus');
+  const btn = document.getElementById("emailBtn");
+  const statusEl = document.getElementById("emailStatus");
   const isSingleDay = isSameDay(st.dateFrom, st.dateTo);
 
   if (st.enrichedLines.length === 0) {
     btn.disabled = true;
-    statusEl.textContent = '';
+    statusEl.textContent = "";
   } else if (!isSingleDay) {
     btn.disabled = true;
-    statusEl.textContent = 'Mail dotyczy jednego dnia — zawęź zakres dat ("Od"/"Do") do jednego dnia, żeby wysłać raport.';
+    statusEl.textContent =
+      'Mail dotyczy jednego dnia — zawęź zakres dat ("Od"/"Do") do jednego dnia, żeby wysłać raport.';
   } else {
     btn.disabled = false;
-    statusEl.textContent = '';
+    statusEl.textContent = "";
   }
 }
 
@@ -116,7 +148,8 @@ function refreshEmailButtonState() {
 function clampDateRange(st) {
   const range = adjustedDateRange(st.enrichedLines);
   if (range) {
-    if (st.dateFrom < range.min || st.dateFrom > range.max) st.dateFrom = range.max;
+    if (st.dateFrom < range.min || st.dateFrom > range.max)
+      st.dateFrom = range.max;
     if (st.dateTo < range.min || st.dateTo > range.max) st.dateTo = range.max;
     if (st.dateFrom > st.dateTo) st.dateTo = st.dateFrom;
   }
@@ -127,16 +160,16 @@ function clampDateRange(st) {
 // tylko dla aktualnie aktywnej zakładki, inaczej nadpiszemy widoczny filtr danymi
 // klienta, który nie jest teraz wyświetlany.
 function syncDateRangeInputs(st) {
-  const fromInput = document.getElementById('dateFromInput');
-  const toInput = document.getElementById('dateToInput');
-  const monthBtn = document.getElementById('wholeMonthBtn');
+  const fromInput = document.getElementById("dateFromInput");
+  const toInput = document.getElementById("dateToInput");
+  const monthBtn = document.getElementById("wholeMonthBtn");
   const range = clampDateRange(st);
   if (!range) {
     fromInput.disabled = true;
     toInput.disabled = true;
     monthBtn.disabled = true;
-    fromInput.value = '';
-    toInput.value = '';
+    fromInput.value = "";
+    toInput.value = "";
     return;
   }
   fromInput.disabled = false;
@@ -151,20 +184,27 @@ function syncDateRangeInputs(st) {
 // Dopasowuje plik do klienta po numerze raportu zaszytym w nazwie pliku
 // (3ME = "4009", Solventum = "8084" — patrz clients/*.js -> reportNumber).
 function matchClientForFile(file) {
-  return clients.find((config) => file.name.includes(config.reportNumber)) || null;
+  return (
+    clients.find((config) => file.name.includes(config.reportNumber)) || null
+  );
 }
 
 async function handleFiles(fileList) {
   const files = Array.from(fileList || []);
   if (files.length === 0) return;
 
-  const matches = files.map((file) => ({ file, config: matchClientForFile(file) }));
+  const matches = files.map((file) => ({
+    file,
+    config: matchClientForFile(file),
+  }));
   const unmatched = matches.filter((m) => !m.config);
   const matched = matches.filter((m) => m.config);
 
   if (matched.length === 0) {
-    const expected = clients.map((c) => `"${c.reportNumber}" (${c.name})`).join(' lub ');
-    document.getElementById('importStatus').textContent =
+    const expected = clients
+      .map((c) => `"${c.reportNumber}" (${c.name})`)
+      .join(" lub ");
+    document.getElementById("importStatus").textContent =
       `Nie rozpoznano klienta po nazwie pliku — oczekiwano numeru raportu ${expected} w nazwie.`;
     return;
   }
@@ -176,6 +216,18 @@ async function handleFiles(fileList) {
       st.enrichedLines = enrichLines(rows, config);
       st.fileName = file.name;
       clampDateRange(st);
+
+      // Oceny (kod przyczyny/wina) żyją tylko w backendzie — patrz reviewsStore.js. Ściągamy
+      // je przy każdym imporcie, żeby od razu było widać, co ktoś już uzupełnił, niezależnie
+      // od komputera/przeglądarki, na której to zrobił.
+      try {
+        const reviewsByObd = await fetchDelayedLinesReviews(config.name);
+        reviewsStore.hydrateFromBackend(config.id, reviewsByObd);
+      } catch (err) {
+        console.error("Nie udało się pobrać ocen z backendu", err);
+        st.fileName +=
+          " (uwaga: nie udało się pobrać ocen z backendu — sprawdź konsolę)";
+      }
     } catch (err) {
       console.error(err);
       st.enrichedLines = [];
@@ -184,7 +236,10 @@ async function handleFiles(fileList) {
   }
 
   if (unmatched.length > 0) {
-    console.warn('Pominięto pliki bez rozpoznanego klienta:', unmatched.map((m) => m.file.name));
+    console.warn(
+      "Pominięto pliki bez rozpoznanego klienta:",
+      unmatched.map((m) => m.file.name),
+    );
   }
 
   // DOM (inputy daty + status importu + dashboard) zawsze synchronizujemy tylko z danymi
@@ -196,11 +251,13 @@ async function handleFiles(fileList) {
 }
 
 function wireImport() {
-  const input = document.getElementById('csvInput');
-  document.getElementById('importBtn').addEventListener('click', () => input.click());
-  input.addEventListener('change', () => {
+  const input = document.getElementById("csvInput");
+  document
+    .getElementById("importBtn")
+    .addEventListener("click", () => input.click());
+  input.addEventListener("change", () => {
     handleFiles(input.files);
-    input.value = ''; // pozwala wgrać ten sam plik ponownie (np. po poprawce w źródle)
+    input.value = ""; // pozwala wgrać ten sam plik ponownie (np. po poprawce w źródle)
   });
 }
 
@@ -213,61 +270,96 @@ async function copyReportToClipboard(textBody, htmlBody) {
     try {
       await navigator.clipboard.write([
         new ClipboardItem({
-          'text/plain': new Blob([textBody], { type: 'text/plain' }),
-          'text/html': new Blob([htmlBody], { type: 'text/html' }),
+          "text/plain": new Blob([textBody], { type: "text/plain" }),
+          "text/html": new Blob([htmlBody], { type: "text/html" }),
         }),
       ]);
       return true;
     } catch (err) {
-      console.error('Nie udało się skopiować jako tabela (HTML) — próbuję zwykły tekst.', err);
+      console.error(
+        "Nie udało się skopiować jako tabela (HTML) — próbuję zwykły tekst.",
+        err,
+      );
     }
   }
   await navigator.clipboard.writeText(textBody);
   return false;
 }
 
-// Kopiuje gotową treść raportu do schowka i otwiera pustego maila (tylko z tematem) w
-// domyślnym kliencie pocztowym — świadomie NIE wstawiamy treści przez mailto:body=...,
-// bo przy tabeli krajów (kilkadziesiąt wierszy) łatwo przekroczyć praktyczny limit
-// długości linku mailto: i Outlook obciąłby treść bez ostrzeżenia.
+// Wysyła raport: zapisuje dzień do backendu (patrz otsDailyApi.js), kopiuje gotową treść
+// do schowka i otwiera pustego maila (adresaci "Do" + temat) w domyślnym kliencie pocztowym —
+// świadomie NIE wstawiamy treści przez mailto:body=..., bo przy tabeli krajów (kilkadziesiąt
+// wierszy) łatwo przekroczyć praktyczny limit długości linku mailto: i Outlook obciąłby
+// treść bez ostrzeżenia.
 function wireEmailButton() {
-  const btn = document.getElementById('emailBtn');
-  const statusEl = document.getElementById('emailStatus');
+  const btn = document.getElementById("emailBtn");
+  const statusEl = document.getElementById("emailStatus");
 
-  btn.addEventListener('click', async () => {
+  btn.addEventListener("click", async () => {
     const st = activeState();
     if (st.enrichedLines.length === 0) return;
 
-    // Raport mailowy ma format "za jeden dzień" (patrz emailReport.js) — trzymamy się
-    // dateFrom, co jest bezpieczne, bo refreshEmailButtonState() blokuje ten przycisk,
-    // gdy wybrany jest zakres szerszy niż jeden dzień.
-    const { subject, textBody, htmlBody } = buildEmailReport({
+    // Raport (zapis do backendu + mail) dotyczy JEDNEGO dnia — trzymamy się dateFrom, co jest
+    // bezpieczne, bo refreshEmailButtonState() blokuje ten przycisk, gdy wybrany jest zakres
+    // szerszy niż jeden dzień.
+    const dayLines = visibleLines();
+    const reviewsByObd = reviewsStore.getAllReviews(activeClientId);
+
+    const { subject, to, textBody, htmlBody } = buildEmailReport({
       config: st.config,
       enrichedLines: st.enrichedLines,
       selectedDate: st.dateFrom,
-      reviewsByObd: reviewsStore.getAllReviews(activeClientId),
+      reviewsByObd,
     });
 
+    btn.disabled = true;
+    statusEl.textContent = "Zapisuję do bazy…";
+
+    let saveOk = true;
     try {
-      const copiedAsTable = await copyReportToClipboard(textBody, htmlBody);
-      statusEl.textContent = copiedAsTable
-        ? 'Tabele skopiowane do schowka — wklej w mailu (Ctrl+V)'
-        : 'Treść skopiowana do schowka jako zwykły tekst (przeglądarka nie wspiera tabel) — wklej w mailu (Ctrl+V)';
+      const kpis = calculateKpis(dayLines, reviewsByObd, st.config);
+      await upsertDailyResult({
+        department: st.config.name,
+        reportDate: toDateInputValue(st.dateFrom),
+        totalLines: kpis.total,
+        grossOnTimeLines: kpis.onTime,
+        netOnTimeLines: kpis.onTime + kpis.sumaObdLine,
+        countries: calculateCountryBreakdown(dayLines),
+        reasons: calculateReasonBreakdown(dayLines, reviewsByObd),
+        delayedLines: buildDelayedLinesSnapshot(dayLines, reviewsByObd),
+        username: window.xcloud?.account?.username ?? "unknown",
+      });
     } catch (err) {
-      console.error(err);
-      statusEl.textContent = 'Nie udało się skopiować do schowka — sprawdź konsolę';
+      console.error("Nie udało się zapisać dnia do backendu", err);
+      saveOk = false;
     }
 
-    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}`;
+    let copyMsg;
+    try {
+      const copiedAsTable = await copyReportToClipboard(textBody, htmlBody);
+      copyMsg = copiedAsTable
+        ? "tabele skopiowane do schowka"
+        : "treść skopiowana jako zwykły tekst (przeglądarka nie wspiera tabel)";
+    } catch (err) {
+      console.error(err);
+      copyMsg = "nie udało się skopiować do schowka — sprawdź konsolę";
+    }
+
+    statusEl.textContent = `${saveOk ? "Zapisano do bazy" : "Błąd zapisu do bazy (sprawdź konsolę)"}, ${copyMsg} — wklej w mailu (Ctrl+V)`;
+    btn.disabled = false;
+
+    // Adresaci idą bezpośrednio po "mailto:" (przed "?") — mailto: (RFC 6068) nie ma parametru
+    // "to=", większość klientów pocztowych by go po prostu zignorowała.
+    window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}`;
   });
 }
 
 function wireDateRangeFilter() {
-  const fromInput = document.getElementById('dateFromInput');
-  const toInput = document.getElementById('dateToInput');
-  const monthBtn = document.getElementById('wholeMonthBtn');
+  const fromInput = document.getElementById("dateFromInput");
+  const toInput = document.getElementById("dateToInput");
+  const monthBtn = document.getElementById("wholeMonthBtn");
 
-  fromInput.addEventListener('change', () => {
+  fromInput.addEventListener("change", () => {
     const parsed = fromDateInputValue(fromInput.value);
     if (!parsed) return;
     const st = activeState();
@@ -277,7 +369,7 @@ function wireDateRangeFilter() {
     renderAll();
   });
 
-  toInput.addEventListener('change', () => {
+  toInput.addEventListener("change", () => {
     const parsed = fromDateInputValue(toInput.value);
     if (!parsed) return;
     const st = activeState();
@@ -289,7 +381,7 @@ function wireDateRangeFilter() {
 
   // Rozszerza zakres do całego miesiąca kalendarzowego zawierającego aktualne "Od"
   // (przycięte do dostępnego zakresu danych — patrz clampDateRange).
-  monthBtn.addEventListener('click', () => {
+  monthBtn.addEventListener("click", () => {
     const st = activeState();
     const range = adjustedDateRange(st.enrichedLines);
     if (!range) return;
@@ -307,10 +399,13 @@ function switchClient(clientId) {
   if (clientId === activeClientId || !state.has(clientId)) return;
   activeClientId = clientId;
 
-  document.querySelectorAll('.rail-btn[data-client-id]').forEach((btn) => {
-    btn.setAttribute('aria-current', btn.dataset.clientId === clientId ? 'true' : 'false');
+  document.querySelectorAll(".rail-btn[data-client-id]").forEach((btn) => {
+    btn.setAttribute(
+      "aria-current",
+      btn.dataset.clientId === clientId ? "true" : "false",
+    );
   });
-  document.getElementById('titleName').textContent = activeState().config.name;
+  document.getElementById("titleName").textContent = activeState().config.name;
   document.title = `OTS · On Time Shipment — ${activeState().config.name}`;
 
   syncDateRangeInputs(activeState());
@@ -319,18 +414,25 @@ function switchClient(clientId) {
 }
 
 function wireRail() {
-  document.querySelectorAll('.rail-btn[data-client-id]').forEach((btn) => {
-    btn.addEventListener('click', () => switchClient(btn.dataset.clientId));
+  document.querySelectorAll(".rail-btn[data-client-id]").forEach((btn) => {
+    btn.addEventListener("click", () => switchClient(btn.dataset.clientId));
   });
 }
 
 function wireTabs() {
-  const tabs = document.querySelectorAll('.tab');
-  const views = { dashboard: document.getElementById('view-dashboard'), delayed: document.getElementById('view-delayed') };
+  const tabs = document.querySelectorAll(".tab");
+  const views = {
+    dashboard: document.getElementById("view-dashboard"),
+    delayed: document.getElementById("view-delayed"),
+  };
   tabs.forEach((tab) => {
-    tab.addEventListener('click', () => {
-      tabs.forEach((t) => t.setAttribute('aria-selected', t === tab ? 'true' : 'false'));
-      Object.entries(views).forEach(([key, el]) => { el.hidden = key !== tab.dataset.tab; });
+    tab.addEventListener("click", () => {
+      tabs.forEach((t) =>
+        t.setAttribute("aria-selected", t === tab ? "true" : "false"),
+      );
+      Object.entries(views).forEach(([key, el]) => {
+        el.hidden = key !== tab.dataset.tab;
+      });
     });
   });
 }
@@ -339,19 +441,21 @@ function wireTabs() {
 // nie osobny dla tego modułu. Wartość początkowa jest już ustawiona synchronicznie przez
 // inline <script> w <head> (index.html), więc tutaj tylko piszemy zmiany i nasłuchujemy
 // zmian z zewnątrz.
-const THEME_STORAGE_KEY = 'cp-theme';
+const THEME_STORAGE_KEY = "cp-theme";
 
 function currentTheme() {
-  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  return document.documentElement.getAttribute("data-theme") === "light"
+    ? "light"
+    : "dark";
 }
 
 function setTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
+  document.documentElement.setAttribute("data-theme", theme);
   localStorage.setItem(THEME_STORAGE_KEY, theme);
 }
 
 function wireTheme() {
-  const toggleBtn = document.getElementById('themeToggle');
+  const toggleBtn = document.getElementById("themeToggle");
 
   // W Fiege Cloud appka żyje w iframe hosta, który ma własny, zawsze widoczny przełącznik
   // motywu (współdzielący z nami "cp-theme") — nasz byłby zdublowanym UI, więc go chowamy.
@@ -361,17 +465,20 @@ function wireTheme() {
   if (isEmbedded) {
     toggleBtn.hidden = true;
   } else {
-    toggleBtn.addEventListener('click', () => {
-      setTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+    toggleBtn.addEventListener("click", () => {
+      setTheme(currentTheme() === "dark" ? "light" : "dark");
     });
   }
 
   // "storage" odpala się tylko w INNYCH kontekstach przeglądarki (np. host-aplikacja
   // współdzieląca ten sam localStorage), nigdy w tym, który sam zapisał — więc to
   // synchronizacja Z ZEWNĄTRZ, gdyby ktoś przełączył motyw poza tym modułem.
-  window.addEventListener('storage', (e) => {
-    if (e.key === THEME_STORAGE_KEY && (e.newValue === 'dark' || e.newValue === 'light')) {
-      document.documentElement.setAttribute('data-theme', e.newValue);
+  window.addEventListener("storage", (e) => {
+    if (
+      e.key === THEME_STORAGE_KEY &&
+      (e.newValue === "dark" || e.newValue === "light")
+    ) {
+      document.documentElement.setAttribute("data-theme", e.newValue);
     }
   });
 }
@@ -383,4 +490,4 @@ wireRail();
 wireTabs();
 wireTheme();
 wireDelayedFilters();
-document.getElementById('titleName').textContent = activeState().config.name;
+document.getElementById("titleName").textContent = activeState().config.name;
