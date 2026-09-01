@@ -18,6 +18,7 @@ import {
   upsertDailyResult,
   fetchDelayedLinesReviews,
 } from "./backend/otsDailyApi.js";
+import { currentUserFullName } from "./xcloudUser.js";
 import {
   previousBusinessDay,
   startOfToday,
@@ -327,7 +328,7 @@ function wireEmailButton() {
         countries: calculateCountryBreakdown(dayLines),
         reasons: calculateReasonBreakdown(dayLines, reviewsByObd),
         delayedLines: buildDelayedLinesSnapshot(dayLines, reviewsByObd),
-        username: window.xcloud?.account?.username ?? "unknown",
+        performedBy: currentUserFullName("unknown"),
       });
     } catch (err) {
       console.error("Nie udało się zapisać dnia do backendu", err);
