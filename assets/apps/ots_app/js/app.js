@@ -17,7 +17,9 @@ import { buildEmailReport } from "./emailReport.js";
 import {
   upsertDailyResult,
   fetchDelayedLinesReviews,
+  fetchAllResults,
 } from "./backend/otsDailyApi.js";
+import { initDashView, setDashResults } from "./ui/dashView.js";
 import { currentUserFullName } from "./xcloudUser.js";
 import {
   previousBusinessDay,
@@ -49,6 +51,10 @@ const state = new Map(
 );
 
 let activeClientId = client3me.id;
+// 'client' = zakładka 3ME/SLV (import CSV + dashboard dnia), 'dash' = zakładka DASH (trend
+// KPI z backendu, patrz switchToDash/ui/dashView.js) — całkiem inny widok, więc trzymamy to
+// jako osobny przełącznik zamiast przeciążać activeClientId wartością spoza `clients`.
+let activeMode = "client";
 
 function activeState() {
   return state.get(activeClientId);
@@ -397,9 +403,13 @@ function wireDateRangeFilter() {
 }
 
 function switchClient(clientId) {
-  if (clientId === activeClientId || !state.has(clientId)) return;
+  if (activeMode === "client" && clientId === activeClientId) return;
+  if (!state.has(clientId)) return;
+  const cameFromDash = activeMode === "dash";
+  activeMode = "client";
   activeClientId = clientId;
 
+  document.getElementById("railDashBtn").setAttribute("aria-current", "false");
   document.querySelectorAll(".rail-btn[data-client-id]").forEach((btn) => {
     btn.setAttribute(
       "aria-current",
@@ -409,15 +419,68 @@ function switchClient(clientId) {
   document.getElementById("titleName").textContent = activeState().config.name;
   document.title = `OTS · On Time Shipment — ${activeState().config.name}`;
 
+  if (cameFromDash) {
+    document.querySelector(".topbar-controls").hidden = false;
+    document.querySelector(".tabs").hidden = false;
+    document.getElementById("view-dash").hidden = true;
+    const selectedTab = document.querySelector('.tab[aria-selected="true"]');
+    document.getElementById("view-dashboard").hidden =
+      selectedTab?.dataset.tab !== "dashboard";
+    document.getElementById("view-delayed").hidden =
+      selectedTab?.dataset.tab !== "delayed";
+  }
+
   syncDateRangeInputs(activeState());
   refreshImportStatus();
   renderAll();
+}
+
+// Zakładka DASH (rail, ikona wykresu) — trend KPI Gross/Net z wyników zapisanych w
+// backendzie, niezależny od per-klienckiego stanu CSV powyżej. Chowa cały topbar
+// import/filtr-daty/mail i zakładki Dashboard/Opóźnione linie (mają sens tylko dla
+// zaimportowanego pliku jednego klienta), pokazuje samą kartę z wykresem.
+function switchToDash() {
+  if (activeMode === "dash") return;
+  activeMode = "dash";
+
+  document.querySelectorAll(".rail-btn[data-client-id]").forEach((btn) => {
+    btn.setAttribute("aria-current", "false");
+  });
+  document.getElementById("railDashBtn").setAttribute("aria-current", "true");
+  document.getElementById("titleName").textContent = "Dashboard KPI";
+  document.title = "OTS · On Time Shipment — Dashboard KPI";
+
+  document.querySelector(".topbar-controls").hidden = true;
+  document.querySelector(".tabs").hidden = true;
+  document.getElementById("view-dashboard").hidden = true;
+  document.getElementById("view-delayed").hidden = true;
+  document.getElementById("view-dash").hidden = false;
+
+  loadAndRenderDash();
+}
+
+// Ładuje WSZYSTKIE zapisane wyniki (wszystkich klientów) przy każdym wejściu w DASH —
+// tak samo jak reszta otsDailyApi.js, endpoint nie ma filtrowanego GET, więc nie ma sensu
+// cache'ować to między wizytami (dane i tak mogły się zmienić po zapisaniu nowego dnia).
+async function loadAndRenderDash() {
+  const statusEl = document.getElementById("dashChartStatus");
+  statusEl.textContent = "Wczytywanie danych…";
+  try {
+    const results = await fetchAllResults();
+    setDashResults(results);
+  } catch (err) {
+    console.error("Nie udało się wczytać danych dashboardu", err);
+    statusEl.textContent = "Błąd wczytywania danych — sprawdź konsolę.";
+  }
 }
 
 function wireRail() {
   document.querySelectorAll(".rail-btn[data-client-id]").forEach((btn) => {
     btn.addEventListener("click", () => switchClient(btn.dataset.clientId));
   });
+  document
+    .getElementById("railDashBtn")
+    .addEventListener("click", () => switchToDash());
 }
 
 function wireTabs() {
@@ -491,4 +554,5 @@ wireRail();
 wireTabs();
 wireTheme();
 wireDelayedFilters();
+initDashView(clients);
 document.getElementById("titleName").textContent = activeState().config.name;
