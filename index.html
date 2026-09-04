@@ -132,6 +132,24 @@
               </button>
               <span class="import-status" id="emailStatus"></span>
             </div>
+            <div
+              class="import-box"
+              title="Nadpisuje w bazie wcześniej zapisany wynik dnia (wybranego w filtrze daty) danymi z aktualnie zaimportowanego pliku — bez kopiowania do schowka i bez otwierania maila. Do poprawek, gdy po wysłaniu raportu dotrą opóźnione linie wsteczne za ten dzień."
+            >
+              <button class="btn" id="updateBtn" disabled>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                >
+                  <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                  <path d="M21 3v6h-6" />
+                </svg>
+                Uaktualnij dane w bazie
+              </button>
+              <span class="import-status" id="updateStatus"></span>
+            </div>
           </div>
         </header>
 
@@ -524,7 +542,7 @@
       </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="/assets/apps/ots_app/vendor/chartjs/chart.umd.min.js"></script>
     <script type="module" src="/assets/apps/ots_app/js/app.js"></script>
   </body>
 </html>
