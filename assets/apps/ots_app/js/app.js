@@ -125,27 +125,40 @@ function refreshImportStatus() {
     importStatusText(activeState());
 }
 
-// Przycisk maila ma sens tylko wtedy, gdy dla aktywnego klienta w ogóle coś zaimportowano
-// (inaczej raport wyszedłby z samymi zerami) I wybrany jest DOKŁADNIE jeden dzień — szablon
-// maila (emailReport.js) mówi "Wynik OTS za dzień X", więc wysłanie go przy wybranym
-// zakresie (np. cały miesiąc) pokazywałoby mylącą, niepełną liczbę. Czyścimy też status
-// "skopiowano", żeby nie wprowadzał w błąd po zmianie kontekstu (klient / zakres / import).
+// Oba przyciski (mail i samo uaktualnienie bazy) mają sens tylko wtedy, gdy dla aktywnego
+// klienta w ogóle coś zaimportowano (inaczej zapis wyszedłby z samymi zerami) I wybrany jest
+// DOKŁADNIE jeden dzień — zarówno szablon maila (emailReport.js: "Wynik OTS za dzień X"), jak
+// i zapis dnia do backendu (upsertDailyResult: jeden wiersz per dzień) dotyczą jednego dnia,
+// więc przy szerszym zakresie (np. cały miesiąc) pokazywałyby mylącą, niepełną liczbę.
+// Czyścimy też status "skopiowano"/"zaktualizowano", żeby nie wprowadzał w błąd po zmianie
+// kontekstu (klient / zakres / import).
 function refreshEmailButtonState() {
   const st = activeState();
-  const btn = document.getElementById("emailBtn");
-  const statusEl = document.getElementById("emailStatus");
   const isSingleDay = isSameDay(st.dateFrom, st.dateTo);
+  const hasData = st.enrichedLines.length > 0;
 
-  if (st.enrichedLines.length === 0) {
-    btn.disabled = true;
-    statusEl.textContent = "";
+  const emailBtn = document.getElementById("emailBtn");
+  const emailStatusEl = document.getElementById("emailStatus");
+  const updateBtn = document.getElementById("updateBtn");
+  const updateStatusEl = document.getElementById("updateStatus");
+
+  if (!hasData) {
+    emailBtn.disabled = true;
+    updateBtn.disabled = true;
+    emailStatusEl.textContent = "";
+    updateStatusEl.textContent = "";
   } else if (!isSingleDay) {
-    btn.disabled = true;
-    statusEl.textContent =
-      'Mail dotyczy jednego dnia — zawęź zakres dat ("Od"/"Do") do jednego dnia, żeby wysłać raport.';
+    emailBtn.disabled = true;
+    updateBtn.disabled = true;
+    const hint =
+      'Zapis dotyczy jednego dnia — zawęź zakres dat ("Od"/"Do") do jednego dnia.';
+    emailStatusEl.textContent = hint;
+    updateStatusEl.textContent = hint;
   } else {
-    btn.disabled = false;
-    statusEl.textContent = "";
+    emailBtn.disabled = false;
+    updateBtn.disabled = false;
+    emailStatusEl.textContent = "";
+    updateStatusEl.textContent = "";
   }
 }
 
@@ -293,6 +306,24 @@ async function copyReportToClipboard(textBody, htmlBody) {
   return false;
 }
 
+// Zapisuje (POST) albo nadpisuje (PATCH — patrz otsDailyApi.js upsertDailyResult) wynik
+// jednego dnia dla aktywnego klienta w backendzie. Współdzielone przez przycisk maila i
+// przycisk samego uaktualnienia bazy, bo obie ścieżki liczą i wysyłają dokładnie te same dane.
+async function saveDayToBackend(st, dayLines, reviewsByObd) {
+  const kpis = calculateKpis(dayLines, reviewsByObd, st.config);
+  await upsertDailyResult({
+    department: st.config.name,
+    reportDate: toDateInputValue(st.dateFrom),
+    totalLines: kpis.total,
+    grossOnTimeLines: kpis.onTime,
+    netOnTimeLines: kpis.onTime + kpis.sumaObdLine,
+    countries: calculateCountryBreakdown(dayLines),
+    reasons: calculateReasonBreakdown(dayLines, reviewsByObd),
+    delayedLines: buildDelayedLinesSnapshot(dayLines, reviewsByObd),
+    performedBy: currentUserFullName("unknown"),
+  });
+}
+
 // Wysyła raport: zapisuje dzień do backendu (patrz otsDailyApi.js), kopiuje gotową treść
 // do schowka i otwiera pustego maila (adresaci "Do" + temat) w domyślnym kliencie pocztowym —
 // świadomie NIE wstawiamy treści przez mailto:body=..., bo przy tabeli krajów (kilkadziesiąt
@@ -324,18 +355,7 @@ function wireEmailButton() {
 
     let saveOk = true;
     try {
-      const kpis = calculateKpis(dayLines, reviewsByObd, st.config);
-      await upsertDailyResult({
-        department: st.config.name,
-        reportDate: toDateInputValue(st.dateFrom),
-        totalLines: kpis.total,
-        grossOnTimeLines: kpis.onTime,
-        netOnTimeLines: kpis.onTime + kpis.sumaObdLine,
-        countries: calculateCountryBreakdown(dayLines),
-        reasons: calculateReasonBreakdown(dayLines, reviewsByObd),
-        delayedLines: buildDelayedLinesSnapshot(dayLines, reviewsByObd),
-        performedBy: currentUserFullName("unknown"),
-      });
+      await saveDayToBackend(st, dayLines, reviewsByObd);
     } catch (err) {
       console.error("Nie udało się zapisać dnia do backendu", err);
       saveOk = false;
@@ -358,6 +378,36 @@ function wireEmailButton() {
     // Adresaci idą bezpośrednio po "mailto:" (przed "?") — mailto: (RFC 6068) nie ma parametru
     // "to=", większość klientów pocztowych by go po prostu zignorowała.
     window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}`;
+  });
+}
+
+// Sama część "zapisz do bazy" z wireEmailButton, bez kopiowania do schowka i bez mailto: —
+// pod poprawki zaległych/opóźnionych linii wstecz, które dotarły już PO wysłaniu maila za dany
+// dzień: ktoś poprawia dane w zaimportowanym pliku (albo oceny w panelu "Opóźnione linie"),
+// a tym przyciskiem nadpisuje zapisany wcześniej wiersz w bazie bez ponownego "wysyłania" maila.
+function wireUpdateButton() {
+  const btn = document.getElementById("updateBtn");
+  const statusEl = document.getElementById("updateStatus");
+
+  btn.addEventListener("click", async () => {
+    const st = activeState();
+    if (st.enrichedLines.length === 0) return;
+
+    const dayLines = visibleLines();
+    const reviewsByObd = reviewsStore.getAllReviews(activeClientId);
+
+    btn.disabled = true;
+    statusEl.textContent = "Zapisuję do bazy…";
+
+    try {
+      await saveDayToBackend(st, dayLines, reviewsByObd);
+      statusEl.textContent = "Zaktualizowano dane w bazie";
+    } catch (err) {
+      console.error("Nie udało się zaktualizować dnia w backendzie", err);
+      statusEl.textContent = "Błąd zapisu do bazy (sprawdź konsolę)";
+    }
+
+    btn.disabled = false;
   });
 }
 
@@ -550,6 +600,7 @@ function wireTheme() {
 wireImport();
 wireDateRangeFilter();
 wireEmailButton();
+wireUpdateButton();
 wireRail();
 wireTabs();
 wireTheme();
