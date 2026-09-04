@@ -167,6 +167,16 @@ button {
   opacity: 0.35;
   cursor: not-allowed;
 }
+.rail-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.rail-divider {
+  width: 28px;
+  height: 1px;
+  background: var(--border);
+  margin: 2px 0;
+}
 .rail-spacer {
   flex: 1;
 }
@@ -213,6 +223,13 @@ button {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+/* Jak .view[hidden] niżej — bez tego author-owy display:flex/flex wygrywa z UA-owym
+   [hidden]{display:none}, więc same [hidden] by nie ukryło (patrz zakładka DASH w app.js,
+   która chowa te elementy zamiast pokazywać widok per-klienta). */
+.topbar-controls[hidden],
+.tabs[hidden] {
+  display: none;
 }
 
 .import-box {
@@ -369,9 +386,20 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 .card-head-controls input[type="text"] {
   width: 150px;
+}
+.dash-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.dash-range input[type="date"] {
+  width: 128px;
 }
 
 .grid-kpi {
@@ -587,6 +615,61 @@ tbody tr.total td {
   background: var(--critical);
 }
 
+/* Cały wiersz na czerwono (np. linia bez przypisanego Reason Code, tabela DASH) — kropka
+   pct-dot sama w sobie była za mało widoczna (feedback użytkownika). */
+tr.row-critical td {
+  background: color-mix(in oklab, var(--critical) 12%, var(--surface-1));
+}
+
+.chart-wrap {
+  padding: 4px 16px 20px;
+}
+.chart-wrap .hint {
+  margin-top: 8px;
+  text-align: center;
+}
+
+/* Karty KPI (Gross/Net) wybranego okresu — nad wykresem DASH, ten sam .grid-kpi co na
+   dashboardzie per-klienta (duże karty), tylko z doliczonym poziomym paddingiem, bo tu
+   .grid-kpi siedzi wewnątrz .card (bez paddingu własnego), nie bezpośrednio w .view. */
+.dash-kpi-row {
+  padding: 14px 16px 0;
+}
+
+/* Tabela "Powody opóźnień" (DASH) + wykres kołowy rozkładu wg kodu przyczyny obok niej —
+   tabela zajmuje resztę miejsca, wykres ma stałą szerokość, żeby nie "pływał" przy zmianie
+   liczby wierszy tabeli. */
+.dash-details-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 0 16px 16px;
+}
+.dash-details-body .table-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.dash-reason-chart {
+  width: 500px;
+  flex: none;
+}
+.dash-reason-chart canvas {
+  height: 300px !important;
+  max-height: 300px;
+}
+.dash-reason-chart .hint {
+  margin-top: 6px;
+  text-align: center;
+}
+@media (max-width: 820px) {
+  .dash-details-body {
+    flex-direction: column;
+  }
+  .dash-reason-chart {
+    width: 100%;
+  }
+}
+
 .legend-row {
   display: flex;
   gap: 14px;
@@ -700,7 +783,8 @@ tbody tr.total td {
   margin-bottom: 12px;
 }
 select,
-input[type="text"] {
+input[type="text"],
+input[type="date"] {
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--text-primary);
@@ -789,6 +873,12 @@ input[type="checkbox"] {
   color: var(--text-primary);
 }
 .owner-btn[aria-pressed="true"][data-owner="klient"] {
+  background: color-mix(in oklab, var(--accent) 26%, var(--surface-2));
+  color: var(--text-primary);
+}
+/* Warianty owner-toggle bez data-owner (np. przełącznik dzień/tydzień w zakładce DASH) —
+   magazyn/klient mają własny kolor wyżej, to jest wspólny fallback. */
+.owner-btn[aria-pressed="true"]:not([data-owner]) {
   background: color-mix(in oklab, var(--accent) 26%, var(--surface-2));
   color: var(--text-primary);
 }
