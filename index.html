@@ -28,6 +28,22 @@
           <button class="rail-btn" data-client-id="3me" aria-current="true" title="3ME">3ME</button>
           <button class="rail-btn" data-client-id="solventum" aria-current="false" title="Solventum">SLV</button>
         </nav>
+        <div class="rail-divider"></div>
+        <nav class="rail-nav" aria-label="Widoki ogólne">
+          <button
+            class="rail-btn"
+            id="railDashBtn"
+            data-view-id="dash"
+            aria-current="false"
+            title="Dashboard KPI"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="4" y="12" width="4" height="8" rx="1" />
+              <rect x="10" y="7" width="4" height="13" rx="1" />
+              <rect x="16" y="3" width="4" height="17" rx="1" />
+            </svg>
+          </button>
+        </nav>
         <div class="rail-spacer"></div>
         <button class="rail-theme" id="themeToggle" title="Przełącz motyw">
           <svg
@@ -403,9 +419,112 @@
             </div>
           </div>
         </section>
+
+        <section class="view" id="view-dash" hidden>
+          <div class="card">
+            <div class="card-head">
+              <h2>Wskaźnik OTS w czasie</h2>
+              <div class="card-head-controls">
+                <div class="owner-toggle" id="dashDepartmentToggle"></div>
+                <div class="owner-toggle" id="dashGranularityToggle">
+                  <button
+                    type="button"
+                    class="owner-btn"
+                    data-granularity="day"
+                    aria-pressed="true"
+                  >
+                    Dzień
+                  </button>
+                  <button
+                    type="button"
+                    class="owner-btn"
+                    data-granularity="week"
+                    aria-pressed="false"
+                  >
+                    Tydzień
+                  </button>
+                </div>
+                <div class="dash-range" title="Zakres dat — domyślnie bieżący miesiąc (widok dzienny) albo ostatnie 4 tygodnie (widok tygodniowy), można dowolnie zmienić.">
+                  <input type="date" id="dashDateFrom" />
+                  <span>–</span>
+                  <input type="date" id="dashDateTo" />
+                </div>
+              </div>
+            </div>
+            <div class="grid-kpi dash-kpi-row">
+              <div class="card kpi" id="dashKpiGross">
+                <div class="kpi-text">
+                  <div class="eyebrow">OTS Gross — wybrany okres</div>
+                  <div class="value num" id="dashKpiGrossValue">—</div>
+                </div>
+                <div class="kpi-status" id="dashKpiGrossStatus"></div>
+              </div>
+              <div class="card kpi" id="dashKpiNet">
+                <div class="kpi-text">
+                  <div class="eyebrow">OTS Net — wybrany okres</div>
+                  <div class="value num" id="dashKpiNetValue">—</div>
+                </div>
+                <div class="kpi-status" id="dashKpiNetStatus"></div>
+              </div>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="dashChart" height="90"></canvas>
+              <div class="hint" id="dashChartStatus"></div>
+              <div class="legend-row">
+                <span><i style="background: var(--good)"></i>Cel osiągnięty (≥ 98,50%)</span>
+                <span><i style="background: var(--critical)"></i>Cel nieosiągnięty</span>
+                <span
+                  ><i style="background: var(--text-secondary); opacity: 0.6"></i>Pełny
+                  słupek = Gross, jaśniejszy = Net</span
+                >
+                <span
+                  ><i
+                    style="
+                      background: none;
+                      width: 14px;
+                      height: 0;
+                      border-radius: 0;
+                      border-top: 2px dashed var(--warning);
+                    "
+                  ></i
+                  >Cel 98,50%</span
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top: 14px">
+            <div class="card-head">
+              <h2>Powody opóźnień</h2>
+              <span class="hint" id="dashDetailsHint"></span>
+            </div>
+            <div class="dash-details-body">
+              <div class="table-wrap scroll-y">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Dzień</th>
+                      <th>WMS Order</th>
+                      <th>Kraj</th>
+                      <th class="num">Ilość linii</th>
+                      <th>Reason Code</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashDetailsTable"></tbody>
+                </table>
+              </div>
+              <div class="dash-reason-chart">
+                <div class="eyebrow">Rozkład wg powodu</div>
+                <canvas id="dashReasonChart"></canvas>
+                <div class="hint" id="dashReasonChartStatus"></div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script type="module" src="/assets/apps/ots_app/js/app.js"></script>
   </body>
 </html>

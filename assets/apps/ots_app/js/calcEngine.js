@@ -1,4 +1,4 @@
-import { addDays, mondayIndexedDayOfWeek, isSameDay } from './dateUtils.js';
+import { addDays, mondayIndexedDayOfWeek, isSameDay, startOfWeek, fromDateInputValue, toDateInputValue } from './dateUtils.js';
 
 // --- Krok 1: AdjustedExpectedDate -----------------------------------------
 // Replika 1:1 kroku "Dodano kolumnę AdjustedExpectedDate" z Power Query.
@@ -280,6 +280,97 @@ export function filterByAdjustedMonthToDate(lines, date) {
       && l.adjustedExpectedDate.getMonth() === month
       && l.adjustedExpectedDate <= date,
   );
+}
+
+// --- Agregacja wyników zapisanych w backendzie (zakładka DASH) --------------
+// results: [{ department, reportDate, totalLines, grossOnTimeLines, netOnTimeLines }],
+// patrz js/backend/otsDailyApi.js -> fetchAllResults. To są już zapisane dzienne wyniki
+// (po jednym na department+report_date), nie surowe linie OBD.
+
+export function filterResultsByDepartment(results, department) {
+  if (!department || department === 'all') return results;
+  return results.filter((r) => r.department === department);
+}
+
+// fromIso/toIso: "YYYY-MM-DD" albo null (bez ograniczenia z danej strony). Porównanie
+// leksykograficzne stringów działa poprawnie dla tego formatu, bez parsowania na Date.
+export function filterResultsByDateRange(results, fromIso, toIso) {
+  return results.filter((r) => {
+    if (fromIso && r.reportDate < fromIso) return false;
+    if (toIso && r.reportDate > toIso) return false;
+    return true;
+  });
+}
+
+// Najpóźniejsza report_date w zbiorze (string "YYYY-MM-DD") albo null, gdy pusty —
+// używane jako domyślny górny koniec zakresu na wykresie DASH ("do dnia, w którym są dane").
+export function maxReportDate(results) {
+  if (results.length === 0) return null;
+  return results.reduce((max, r) => (r.reportDate > max ? r.reportDate : max), results[0].reportDate);
+}
+
+// Grupowanie po dniu — potrzebne głównie wtedy, gdy dla jednego dnia zapisano wyniki
+// kilku departmentów naraz (widok "Wszyscy klienci"), więc trzeba je zsumować, a nie
+// tylko posortować.
+export function groupResultsByDay(results) {
+  const map = new Map();
+  for (const r of results) {
+    if (!map.has(r.reportDate)) {
+      map.set(r.reportDate, { key: r.reportDate, totalLines: 0, grossOnTimeLines: 0, netOnTimeLines: 0 });
+    }
+    const entry = map.get(r.reportDate);
+    entry.totalLines += r.totalLines;
+    entry.grossOnTimeLines += r.grossOnTimeLines;
+    entry.netOnTimeLines += r.netOnTimeLines;
+  }
+  return [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+// Grupowanie po tygodniu (poniedziałek-niedziela, patrz dateUtils.startOfWeek).
+export function groupResultsByWeek(results) {
+  const map = new Map();
+  for (const r of results) {
+    const weekStart = startOfWeek(fromDateInputValue(r.reportDate));
+    const key = toDateInputValue(weekStart);
+    if (!map.has(key)) {
+      map.set(key, { key, weekStart, totalLines: 0, grossOnTimeLines: 0, netOnTimeLines: 0 });
+    }
+    const entry = map.get(key);
+    entry.totalLines += r.totalLines;
+    entry.grossOnTimeLines += r.grossOnTimeLines;
+    entry.netOnTimeLines += r.netOnTimeLines;
+  }
+  return [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+// Sumuje total/gross/net_on_time_lines po wszystkich wynikach i liczy z tego JEDEN wspólny
+// %Gross/%Net (ważona suma, nie średnia z dni) — pod kartę KPI wybranego okresu w zakładce
+// DASH (patrz ui/dashView.js -> renderPeriodPanel), niezależnie od tego, ile dni/tygodni
+// się w nim mieści.
+export function aggregateResults(results) {
+  const totals = results.reduce(
+    (acc, r) => {
+      acc.totalLines += r.totalLines;
+      acc.grossOnTimeLines += r.grossOnTimeLines;
+      acc.netOnTimeLines += r.netOnTimeLines;
+      return acc;
+    },
+    { totalLines: 0, grossOnTimeLines: 0, netOnTimeLines: 0 },
+  );
+  return {
+    grossPct: totals.totalLines === 0 ? 0 : totals.grossOnTimeLines / totals.totalLines,
+    netPct: totals.totalLines === 0 ? 0 : totals.netOnTimeLines / totals.totalLines,
+  };
+}
+
+// Dolicza %Gross/%Net do zgrupowanych wpisów — ważona suma (sum linii on-time / sum linii),
+// NIE średnia z dziennych procentów, bo dni mają różny wolumen.
+export function withPct(entries) {
+  return entries.map((e) => ({
+    ...e,
+    grossPct: e.totalLines === 0 ? 0 : e.grossOnTimeLines / e.totalLines,
+    netPct: e.totalLines === 0 ? 0 : e.netOnTimeLines / e.totalLines,
+  }));
 }
 
 // Zakres dostępnych dat (po AdjustedExpectedDate) w aktualnie zaimportowanym pliku —

@@ -5,9 +5,9 @@ import {
 } from "../calcEngine.js";
 import { formatPercent } from "../dateUtils.js";
 
-const OK_ICON =
+export const OK_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 12.5l5 5L20 6.5"/></svg>';
-const NOK_ICON =
+export const NOK_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg>';
 
 let countryRows = [];
