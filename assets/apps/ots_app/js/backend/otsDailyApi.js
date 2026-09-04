@@ -19,8 +19,11 @@ const API_BASE = 'https://cloud.fiege.pl//api/apps/spa/ots-daily';
 // i łatwo tego nie zauważyć — ale jak tylko historii zrobi się więcej niż per_page (domyślnie
 // 50), trzeba przejść przez WSZYSTKIE strony, inaczej findRow() nie znajdzie dnia z dalszej
 // strony i zrobi duplikat zamiast nadpisania, a fetchMonthlyResults() po cichu urwie starsze dane.
+// Prosimy backend o duże strony (1000), żeby przy rosnącej historii nie robić dziesiątek
+// zapytań przy każdym odczycie — nadal pętlujemy po `lastPage`, gdyby backend i tak przyciął
+// per_page do własnego maksimum.
 async function fetchPage(page) {
-  const url = `${API_BASE}?page=${page}`;
+  const url = `${API_BASE}?page=${page}&per_page=1000`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
   const payload = await res.json();
@@ -138,4 +141,24 @@ export async function fetchMonthlyResults(department, year, month) {
     .filter((r) => r.department === department && String(r.report_date).startsWith(prefix))
     .map((r) => ({ ...r, meta: parseMeta(r) }))
     .sort((a, b) => a.report_date.localeCompare(b.report_date));
+}
+
+// Wszystkie zapisane dzienne wyniki (wszystkich departmentów) — pod zakładkę DASH: wykres
+// trendu (total/gross/net) i tabela "Powody opóźnień" pod nim po kliknięciu dnia/tygodnia
+// (delayedLines z meta, patrz calcEngine.buildDelayedLinesSnapshot -> co dokładnie tam ląduje).
+export async function fetchAllResults() {
+  const rows = await fetchAllRows();
+  return rows
+    .map((r) => {
+      const meta = parseMeta(r);
+      return {
+        department: r.department,
+        reportDate: r.report_date,
+        totalLines: r.total_lines,
+        grossOnTimeLines: r.gross_on_time_lines,
+        netOnTimeLines: r.net_on_time_lines,
+        delayedLines: meta.delayedLines ?? [],
+      };
+    })
+    .sort((a, b) => a.reportDate.localeCompare(b.reportDate));
 }
