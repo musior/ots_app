@@ -50,6 +50,19 @@ export function endOfMonth(date) {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0);
 }
 
+// Poniedziałek tygodnia zawierającego podaną datę — używane do grupowania wyników
+// dashboardu KPI (zakładka DASH) po tygodniach, spójnie z mondayIndexedDayOfWeek.
+export function startOfWeek(date) {
+  return addDays(date, -mondayIndexedDayOfWeek(date));
+}
+
+// Etykieta zakresu tygodnia "DD.MM–DD.MM" (poniedziałek–niedziela) do osi wykresu.
+export function formatWeekRangeLabel(weekStart) {
+  const weekEnd = addDays(weekStart, 6);
+  const fmt = (d) => `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return `${fmt(weekStart)}–${fmt(weekEnd)}`;
+}
+
 // Format "DD-MM-RRRR" używany w temacie i treści raportu mailowego (js/emailReport.js) —
 // inny niż formatDatePl (kropki, pl-PL), bo takiego formatu oczekuje treść maila.
 export function formatDateDMY(date) {
