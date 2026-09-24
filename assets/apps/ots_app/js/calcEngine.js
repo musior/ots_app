@@ -209,6 +209,7 @@ export function groupNeedingReviewByObd(lines) {
         obd: line.OBD,
         wmsOrder: line.WMS_ORDER,
         country: line.NAME_COUNTRY,
+        adjustedExpectedDate: line.adjustedExpectedDate,
         delayStatus: line.delayStatus,
         lineCount: 0,
         totalQty: 0,

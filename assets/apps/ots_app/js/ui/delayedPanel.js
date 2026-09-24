@@ -1,5 +1,6 @@
 import { groupNeedingReviewByObd } from '../calcEngine.js';
 import * as reviewsStore from '../reviewsStore.js';
+import { formatDatePl } from '../dateUtils.js';
 import { currentUserFullName } from '../xcloudUser.js';
 
 let currentGroups = [];
@@ -87,6 +88,7 @@ function buildRow(group) {
 
   tr.innerHTML = `
     <td><input type="checkbox" class="row-select" /></td>
+    <td class="num">${formatDatePl(group.adjustedExpectedDate)}</td>
     <td class="kraj">${group.country || '—'}</td>
     <td class="num">${group.wmsOrder || '—'}</td>
     <td class="num">${group.obd || '—'}</td>
