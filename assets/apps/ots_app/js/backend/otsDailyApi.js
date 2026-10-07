@@ -110,7 +110,7 @@ export async function upsertDailyResult({
 // reviewsStore.js) ze wszystkich dni zapisanych dla danego klienta. Wołane przy imporcie
 // pliku (js/app.js -> handleFiles), żeby od razu było widać, co ktoś już ocenił, niezależnie
 // od tego, na jakim komputerze/przeglądarce to zrobił. Każde OBD ma z założenia jeden
-// AdjustedExpectedDate, więc nie powinno wystąpić w dwóch różnych dniach naraz — gdyby jednak
+// EXPECTED_SHIP_DATE, więc nie powinno wystąpić w dwóch różnych dniach naraz — gdyby jednak
 // się zdarzyło (np. korekta danych), wygrywa dzień przetworzony jako ostatni w pętli.
 export async function fetchDelayedLinesReviews(department) {
   const rows = await fetchAllRows();
