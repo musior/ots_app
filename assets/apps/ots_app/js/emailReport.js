@@ -11,8 +11,8 @@
 // a nie tekst z tabulatorami (patrz js/app.js -> copyReportToClipboard).
 
 import {
-  filterByAdjustedDate,
-  filterByAdjustedMonthToDate,
+  filterByExpectedDate,
+  filterByExpectedMonthToDate,
   calculateGross,
   calculateCountryBreakdown,
   groupNeedingReviewByObd,
@@ -107,8 +107,8 @@ export function buildEmailReport({
   selectedDate,
   reviewsByObd,
 }) {
-  const dayLines = filterByAdjustedDate(enrichedLines, selectedDate);
-  const monthLines = filterByAdjustedMonthToDate(enrichedLines, selectedDate);
+  const dayLines = filterByExpectedDate(enrichedLines, selectedDate);
+  const monthLines = filterByExpectedMonthToDate(enrichedLines, selectedDate);
   const dateStr = formatDateDMY(selectedDate);
 
   const daily = regionSummary(dayLines);
@@ -122,7 +122,7 @@ export function buildEmailReport({
     "Total",
     "On Time",
     "Missed",
-    "J CONFIRMATION",
+    "Brak daty wyjazdu",
     "% OTS",
   ];
   const countryRowsFormatted = countryRows.map((row) => [
