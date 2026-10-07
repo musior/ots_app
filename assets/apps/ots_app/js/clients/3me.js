@@ -1,7 +1,6 @@
-// Konfiguracja specyficzna dla klienta 3ME — logika wyliczania AdjustedExpectedDate,
-// przynależności regionalnej i reason code'ów pochodzi 1:1 z zapytania Power Query / DAX
-// używanego dziś w Power BI. Klient Solventum dostanie analogiczny plik z własnymi regułami —
-// silnik obliczeniowy (js/calcEngine.js) jest wspólny dla obu.
+// Konfiguracja specyficzna dla klienta 3ME — przynależność regionalna i reason code'y.
+// DELAY_STATUS liczy się wprost z EXPECTED_SHIP_DATE vs data wyjazdu, wspólnie dla obu
+// klientów (patrz js/calcEngine.js -> computeDelayStatus), bez przesunięć per przewoźnik.
 
 import { sharedReasonCodes } from './reasonCodes.js';
 
@@ -29,23 +28,10 @@ export const client3me = {
   // rozpoznania, do którego klienta należy wgrywany plik (3ME = "4009", Solventum = "8084").
   reportNumber: '4009',
 
-  // Kod kraju (kolumna COUNTRY, numeryczna) używany do wykrycia przesyłek krajowych,
-  // gdy CARRIER jest pusty. Wzięty wprost z formuły DAX ("060") — w przykładowym pliku
-  // nie było wierszy z Polski, więc wymaga potwierdzenia na realnych danych.
-  domesticCountryCode: '060',
-
   csv: {
     delimiter: ';',
     encoding: 'windows-1250',
   },
-
-  // Dopasowanie po CARRIER robione jest przez "zawiera", tak jak Text.Contains w Power Query.
-  carrierGroups: {
-    group1: ['ROM', 'BRI'], // +1 dzień
-    group2: ['SRE', 'BOS', 'KOS', 'MOL', 'TUR', 'MCD', 'DH', 'SO', 'JUE'], // +2 dni (+4 w czwartek)
-    group3: ['UKS', 'GRU', 'AZB', 'KYI', 'UKR', 'LOT', 'ODB', 'TAD'], // +3 dni
-  },
-  litKeyword: 'LIT',
 
   selectDeliveryDate: selectDeliveryDate3me,
 

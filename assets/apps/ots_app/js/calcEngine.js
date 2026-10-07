@@ -1,78 +1,54 @@
-import { addDays, mondayIndexedDayOfWeek, isSameDay, startOfWeek, fromDateInputValue, toDateInputValue } from './dateUtils.js';
+import { isSameDay, startOfWeek, fromDateInputValue, toDateInputValue } from './dateUtils.js';
 
-// --- Krok 1: AdjustedExpectedDate -----------------------------------------
-// Replika 1:1 kroku "Dodano kolumnę AdjustedExpectedDate" z Power Query.
-// Implementacja jest celowo dosłowna względem wzoru DAX, nie względem komentarzy
-// w oryginalnym kodzie (w paru miejscach komentarz i wzór się rozjeżdżają —
-// tu liczy się to, co faktycznie liczy dziś Power BI).
-export function computeAdjustedExpectedDate(row, config) {
-  const expected = row.expectedShipDate;
-  if (!expected) return null;
+// --- Krok 1: DELAY_STATUS --------------------------------------------------
+// Linia jest oceniana wprost względem EXPECTED_SHIP_DATE z pliku — bez żadnych przesunięć
+// zależnych od przewoźnika/kraju/dnia tygodnia (wcześniejsza logika "AdjustedExpectedDate"
+// z Power Query została świadomie porzucona). Data wyjazdu to domyślnie LOADING DATE
+// (wyjątek per klient przez config.selectDeliveryDate — patrz niżej):
+//   - data wyjazdu <= EXPECTED_SHIP_DATE                -> 'OK'
+//   - brak daty wyjazdu, EXPECTED_SHIP_DATE >= dziś     -> 'OK' (termin jeszcze nie minął)
+//   - brak daty wyjazdu, termin minął                   -> STATUS_NO_LOADING_DATE
+//   - data wyjazdu > EXPECTED_SHIP_DATE                 -> STATUS_DELAY
+export const STATUS_DELAY = 'DELAY';
+export const STATUS_NO_LOADING_DATE = 'Brak daty wyjazdu';
 
-  const country = String(row.COUNTRY ?? '').trim();
-  const carrier = row.CARRIER ? String(row.CARRIER).trim().toUpperCase() : '';
-  const isCarrierEmpty = carrier === '';
-  const dow = mondayIndexedDayOfWeek(expected); // 0=poniedziałek ... 6=niedziela
-
-  const matchesGroup = (codes) => codes.some((code) => carrier.includes(code));
-  const isGroup1 = matchesGroup(config.carrierGroups.group1);
-  const isGroup2 = matchesGroup(config.carrierGroups.group2);
-  const isGroup3 = matchesGroup(config.carrierGroups.group3);
-  const isLit = carrier.includes(config.litKeyword);
-  const isDomestic = Number(country) === Number(config.domesticCountryCode);
-
-  let base;
-  if (isLit) {
-    if (dow === 0) base = expected;
-    else if (dow === 1 || dow === 2) base = addDays(expected, 2 - dow + 1);
-    else if (dow === 3 || dow === 4) base = addDays(expected, 4 - dow);
-    else base = expected;
-  } else if (isCarrierEmpty && !isDomestic) {
-    base = addDays(expected, 3);
-  } else if (isCarrierEmpty && isDomestic) {
-    base = expected;
-  } else if (isGroup1) {
-    base = addDays(expected, 1);
-  } else if (isGroup2) {
-    base = dow === 3 ? addDays(expected, 4) : addDays(expected, 2);
-  } else if (isGroup3) {
-    base = addDays(expected, 3);
-  } else {
-    base = expected;
-  }
-
-  // Korekta weekendowa — tylko dla gałęzi grup 1/2/3/LIT, tak jak w źródle
-  // (gałąź "pusty CARRIER" nie jest nią objęta).
-  if (isGroup1 || isGroup2 || isGroup3 || isLit) {
-    const baseDow = mondayIndexedDayOfWeek(base);
-    if (baseDow > 4) {
-      base = addDays(base, 7 - baseDow);
-    }
-  }
-
-  return base;
+export function computeDelayStatus(expectedShipDate, loadingDate, today) {
+  if (!expectedShipDate) return null;
+  if (!loadingDate) return expectedShipDate >= today ? 'OK' : STATUS_NO_LOADING_DATE;
+  return loadingDate <= expectedShipDate ? 'OK' : STATUS_DELAY;
 }
 
-// --- Krok 2: DELAY_STATUS --------------------------------------------------
-// Porównanie robi się z "datą dostawy" wybraną przez selectDeliveryDate (domyślnie
-// LOADING DATE, nie PHYSICAL_SHIP_DATE — patrz csvParser.js/row.loadingDate) — to
-// świadoma korekta logiki, bo LOADING DATE jest właściwą datą do oceny terminowości.
-export function computeDelayStatus(adjustedExpectedDate, deliveryDate, today) {
-  if (!adjustedExpectedDate) return null;
-  if (adjustedExpectedDate >= today && !deliveryDate) return 'OK';
-  if (deliveryDate && deliveryDate <= adjustedExpectedDate) return 'OK';
-  if (!deliveryDate) return 'Zamówienie potwierdzone';
-  return 'DELAY';
-}
-
-// Domyślny wybór pola daty do porównania z AdjustedExpectedDate — LOADING DATE.
+// Domyślny wybór daty wyjazdu do porównania z EXPECTED_SHIP_DATE — LOADING DATE.
 // Config klienta może to nadpisać (patrz clients/3me.js -> selectDeliveryDate: dla
 // przewoźników DPD/MGS 3ME chce PHYSICAL_SHIP_DATE zamiast LOADING DATE).
 export function selectDeliveryDate(row) {
   return row.loadingDate;
 }
 
-// --- Krok 3: PL / EU / NON EU ----------------------------------------------
+// Zamówienie przyjęte (RECEIVED_DATE + RECEIVED_TIME) po EXPECTED_SHIP_DATE albo w tym samym
+// dniu po godzinie 17:00 — znak, że EXPECTED_SHIP_DATE ustawiono (albo przestawiono) na datę,
+// której magazyn nie miał szans dotrzymać. Nie zmienia statusu linii — tylko podświetla OBD
+// w panelu "Opóźnione linie", żeby przy wyborze powodu od razu było to widać.
+const RECEIVED_CUTOFF_HHMM = 1700;
+
+function receivedTimeAsHhmm(value) {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  if (!digits) return null;
+  // "1700"/"930" -> HHMM; "170000"/"93000" -> HHMMSS (obcinamy sekundy).
+  return digits.length <= 4 ? Number(digits) : Math.floor(Number(digits) / 100);
+}
+
+// RECEIVED_DATE późniejsza niż EXPECTED_SHIP_DATE -> zawsze zaznaczamy (godzina bez znaczenia);
+// ten sam dzień -> zaznaczamy tylko, gdy RECEIVED_TIME jest po 17:00.
+export function isReceivedAfterCutoff(row) {
+  if (!row.receivedDate || !row.expectedShipDate) return false;
+  if (row.receivedDate > row.expectedShipDate) return true;
+  if (row.receivedDate < row.expectedShipDate) return false;
+  const hhmm = receivedTimeAsHhmm(row.RECEIVED_TIME);
+  return hhmm !== null && hhmm > RECEIVED_CUTOFF_HHMM;
+}
+
+// --- Krok 2: PL / EU / NON EU ----------------------------------------------
 export function computeRegion(row, config) {
   const country = row.NAME_COUNTRY ? String(row.NAME_COUNTRY).trim().toUpperCase() : '';
   if (country === 'POLSKA') return 'PL';
@@ -81,15 +57,11 @@ export function computeRegion(row, config) {
 }
 
 export function enrichLine(row, config, today) {
-  // Formuła AdjustedExpectedDate różni się realnie między klientami (inne grupy
-  // przewoźników / dodatkowe reguły) — config może podać własną implementację
-  // (patrz clients/solventum.js), reszta silnika (DELAY_STATUS, region, KPI) zostaje wspólna.
-  const computeDate = config.computeAdjustedExpectedDate || computeAdjustedExpectedDate;
-  const adjustedExpectedDate = computeDate(row, config);
   const pickDeliveryDate = config.selectDeliveryDate || selectDeliveryDate;
-  const delayStatus = computeDelayStatus(adjustedExpectedDate, pickDeliveryDate(row), today);
+  const delayStatus = computeDelayStatus(row.expectedShipDate, pickDeliveryDate(row), today);
   const region = computeRegion(row, config);
-  return { ...row, adjustedExpectedDate, delayStatus, region };
+  const receivedAfterCutoff = isReceivedAfterCutoff(row);
+  return { ...row, delayStatus, region, receivedAfterCutoff };
 }
 
 export function enrichLines(rows, config, today = new Date()) {
@@ -161,8 +133,8 @@ export function calculateCountryBreakdown(lines) {
     const entry = map.get(key);
     entry.total += 1;
     if (line.delayStatus === 'OK') entry.onTime += 1;
-    else if (line.delayStatus === 'DELAY') entry.missed += 1;
-    else entry.jConfirmation += 1; // 'Zamówienie potwierdzone'
+    else if (line.delayStatus === STATUS_DELAY) entry.missed += 1;
+    else entry.jConfirmation += 1; // STATUS_NO_LOADING_DATE
   }
   return [...map.values()]
     .map((e) => ({ ...e, toExplain: e.total - e.onTime, grossPct: e.total === 0 ? 0 : e.onTime / e.total }));
@@ -198,9 +170,10 @@ export function linesNeedingReview(lines) {
 // Grupuje linie wymagające przeglądu po OBD — jeden OBD może mieć kilka wierszy
 // (OBD_LINE), ale w panelu "Opóźnione linie" ocenia się go jako całość: jeden
 // kod przyczyny + jedna wina na cały OBD, a nie osobno na każdą linię.
-// Zakłada, że pola istotne dla statusu (CARRIER, COUNTRY, EXPECTED_SHIP_DATE,
-// LOADING DATE) są wspólne dla wszystkich linii tego samego OBD — tak jest
-// w źródłowym raporcie, bo dotyczą całej przesyłki, nie pojedynczej pozycji.
+// Zakłada, że pola istotne dla statusu (EXPECTED_SHIP_DATE, LOADING DATE) są wspólne
+// dla wszystkich linii tego samego OBD — tak jest w źródłowym raporcie, bo dotyczą całej
+// przesyłki, nie pojedynczej pozycji. receivedAfterCutoff jest zapalane, jeśli dotyczy
+// choćby jednej linii OBD.
 export function groupNeedingReviewByObd(lines) {
   const map = new Map();
   for (const line of linesNeedingReview(lines)) {
@@ -210,8 +183,9 @@ export function groupNeedingReviewByObd(lines) {
         wmsOrder: line.WMS_ORDER,
         country: line.NAME_COUNTRY,
         shipToCustomer: line.SHIP_TO_CUSTOMER_DATA,
-        adjustedExpectedDate: line.adjustedExpectedDate,
+        expectedShipDate: line.expectedShipDate,
         delayStatus: line.delayStatus,
+        receivedAfterCutoff: false,
         lineCount: 0,
         totalQty: 0,
       });
@@ -219,6 +193,7 @@ export function groupNeedingReviewByObd(lines) {
     const group = map.get(line.OBD);
     group.lineCount += 1;
     group.totalQty += Number(line.OBD_QTY) || 0;
+    if (line.receivedAfterCutoff) group.receivedAfterCutoff = true;
   }
   return [...map.values()];
 }
@@ -228,14 +203,14 @@ export function groupNeedingReviewByObd(lines) {
 // NIE ocenionymi (reasonCode/faultOwner = null). Używane przy zapisie dnia do backendu (patrz
 // js/backend/otsDailyApi.js), żeby dało się później odtworzyć panel i wynik Net z danych
 // zapisanych po stronie serwera, nie tylko z localStorage tej jednej przeglądarki.
-// adjustedExpectedDate leci jako "YYYY-MM-DD" (ten sam format co report_date).
+// expectedShipDate leci jako "YYYY-MM-DD" (ten sam format co report_date).
 export function buildDelayedLinesSnapshot(lines, reviewsByObd) {
   return groupNeedingReviewByObd(lines).map((group) => {
     const review = reviewsByObd[group.obd];
     return {
       obd: group.obd,
       wmsOrder: group.wmsOrder,
-      adjustedExpectedDate: group.adjustedExpectedDate ? toDateInputValue(group.adjustedExpectedDate) : null,
+      expectedShipDate: group.expectedShipDate ? toDateInputValue(group.expectedShipDate) : null,
       country: group.country,
       shipToCustomer: group.shipToCustomer || null,
       lineCount: group.lineCount,
@@ -249,41 +224,41 @@ export function buildDelayedLinesSnapshot(lines, reviewsByObd) {
 }
 
 // --- Filtr daty na dashboardzie ---------------------------------------------
-// Ważne: filtrujemy po AdjustedExpectedDate (data po korekcie przewoźnika/weekendu),
-// NIE po surowym EXPECTED_SHIP_DATE z pliku — tak jak w Power BI.
-export function filterByAdjustedDate(lines, date) {
+// Filtrujemy po EXPECTED_SHIP_DATE z pliku — tej samej dacie, względem której liczony
+// jest DELAY_STATUS.
+export function filterByExpectedDate(lines, date) {
   if (!date) return lines;
-  return lines.filter((l) => isSameDay(l.adjustedExpectedDate, date));
+  return lines.filter((l) => isSameDay(l.expectedShipDate, date));
 }
 
-// Zakres dat (obie granice włącznie, po AdjustedExpectedDate) — dashboard używa tego
-// zamiast filterByAdjustedDate, żeby pokazać wyniki (KPI, tabela krajów, powody, panel
+// Zakres dat (obie granice włącznie, po EXPECTED_SHIP_DATE) — dashboard używa tego
+// zamiast filterByExpectedDate, żeby pokazać wyniki (KPI, tabela krajów, powody, panel
 // "Opóźnione linie") za dowolny okres, np. cały miesiąc, nie tylko jeden dzień. Pojedynczy
 // dzień to po prostu zakres, gdzie from === to.
-export function filterByAdjustedDateRange(lines, from, to) {
+export function filterByExpectedDateRange(lines, from, to) {
   if (!from && !to) return lines;
   return lines.filter((l) => {
-    if (!l.adjustedExpectedDate) return false;
-    if (from && l.adjustedExpectedDate < from) return false;
-    if (to && l.adjustedExpectedDate > to) return false;
+    if (!l.expectedShipDate) return false;
+    if (from && l.expectedShipDate < from) return false;
+    if (to && l.expectedShipDate > to) return false;
     return true;
   });
 }
 
 // Linie od 1. dnia miesiąca zawierającego podaną datę do TEJ daty włącznie (month-to-date,
-// po AdjustedExpectedDate) — używane do wyników miesięcznych w raporcie mailowym
+// po EXPECTED_SHIP_DATE) — używane do wyników miesięcznych w raporcie mailowym
 // (js/emailReport.js). Celowo NIE cały miesiąc kalendarzowy: raport OBD obejmuje ~3 miesiące
 // do przodu, więc przyszłe, jeszcze niewydarzone wysyłki obniżałyby wskaźnik OTS, mimo że
 // nic się jeszcze nie spóźniło.
-export function filterByAdjustedMonthToDate(lines, date) {
+export function filterByExpectedMonthToDate(lines, date) {
   if (!date) return lines;
   const year = date.getFullYear();
   const month = date.getMonth();
   return lines.filter(
-    (l) => l.adjustedExpectedDate
-      && l.adjustedExpectedDate.getFullYear() === year
-      && l.adjustedExpectedDate.getMonth() === month
-      && l.adjustedExpectedDate <= date,
+    (l) => l.expectedShipDate
+      && l.expectedShipDate.getFullYear() === year
+      && l.expectedShipDate.getMonth() === month
+      && l.expectedShipDate <= date,
   );
 }
 
@@ -378,10 +353,10 @@ export function withPct(entries) {
   }));
 }
 
-// Zakres dostępnych dat (po AdjustedExpectedDate) w aktualnie zaimportowanym pliku —
+// Zakres dostępnych dat (po EXPECTED_SHIP_DATE) w aktualnie zaimportowanym pliku —
 // używane do ograniczenia inputa z datą i podpowiedzi w UI.
-export function adjustedDateRange(lines) {
-  const dates = lines.map((l) => l.adjustedExpectedDate).filter(Boolean);
+export function expectedDateRange(lines) {
+  const dates = lines.map((l) => l.expectedShipDate).filter(Boolean);
   if (dates.length === 0) return null;
   const timestamps = dates.map((d) => d.getTime());
   return { min: new Date(Math.min(...timestamps)), max: new Date(Math.max(...timestamps)) };
