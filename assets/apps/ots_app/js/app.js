@@ -3,8 +3,8 @@ import { clientSolventum } from "./clients/solventum.js";
 import { parseObdCsvFile } from "./csvParser.js";
 import {
   enrichLines,
-  filterByAdjustedDateRange,
-  adjustedDateRange,
+  filterByExpectedDateRange,
+  expectedDateRange,
   calculateKpis,
   calculateCountryBreakdown,
   calculateReasonBreakdown,
@@ -29,22 +29,34 @@ import {
   toDateInputValue,
   fromDateInputValue,
   isSameDay,
+  formatDatePl,
 } from "./dateUtils.js";
 
 const clients = [client3me, clientSolventum];
 
 // Stan trzymany osobno per klient — przełączanie zakładki (3ME/SLV) nie gubi
-// zaimportowanych danych ani wybranego zakresu dat tego drugiego klienta. dateFrom/dateTo
-// to zakres (obie granice włącznie) — domyślnie pojedynczy dzień (from === to), ale
-// dashboard może pokazywać dowolnie szerszy okres, np. cały miesiąc.
+// zaimportowanych danych ani wybranego zakresu dat tego drugiego klienta. Każda zakładka
+// (Dashboard / Opóźnione linie) ma WŁASNY zakres dat {from, to} (obie granice włącznie):
+// - dashboard: domyślnie pojedynczy dzień — poprzedni dzień roboczy (od niego zależy też
+//   zapis do bazy i mail, patrz refreshEmailButtonState),
+// - delayed: domyślnie od najwcześniejszej daty w raporcie OBD do poprzedniego dnia roboczego
+//   (ustawiane przy każdym imporcie, patrz defaultDelayedRange).
+// Wspólne inputy "Od"/"Do" w topbarze pokazują i zmieniają zakres AKTYWNEJ zakładki.
+function previousBusinessDayRange() {
+  const day = previousBusinessDay(startOfToday());
+  return { from: day, to: day };
+}
+
 const state = new Map(
   clients.map((config) => [
     config.id,
     {
       config,
       enrichedLines: [],
-      dateFrom: previousBusinessDay(startOfToday()),
-      dateTo: previousBusinessDay(startOfToday()),
+      ranges: {
+        dashboard: previousBusinessDayRange(),
+        delayed: previousBusinessDayRange(),
+      },
       fileName: null,
     },
   ]),
@@ -55,34 +67,49 @@ let activeClientId = client3me.id;
 // KPI z backendu, patrz switchToDash/ui/dashView.js) — całkiem inny widok, więc trzymamy to
 // jako osobny przełącznik zamiast przeciążać activeClientId wartością spoza `clients`.
 let activeMode = "client";
+// 'dashboard' | 'delayed' — która zakładka widoku klienta jest otwarta (wspólne dla obu
+// klientów, tak jak w DOM). Decyduje, który zakres dat edytują inputy "Od"/"Do".
+let activeTab = "dashboard";
 
 function activeState() {
   return state.get(activeClientId);
 }
 
-function visibleLines() {
-  const st = activeState();
-  return filterByAdjustedDateRange(st.enrichedLines, st.dateFrom, st.dateTo);
+function activeRange(st) {
+  return st.ranges[activeTab];
+}
+
+function linesInRange(st, tab) {
+  const { from, to } = st.ranges[tab];
+  return filterByExpectedDateRange(st.enrichedLines, from, to);
+}
+
+// Domyślny zakres zakładki "Opóźnione linie": od najwcześniejszej daty EXPECTED_SHIP_DATE
+// w zaimportowanym raporcie do poprzedniego dnia roboczego (przycięcie do danych — clampDateRange).
+function defaultDelayedRange(st) {
+  const range = expectedDateRange(st.enrichedLines);
+  const to = previousBusinessDay(startOfToday());
+  return { from: range && range.min < to ? range.min : to, to };
 }
 
 // Pełny render: wywoływany po imporcie pliku, po zmianie filtra daty i po
 // przełączeniu klienta — jedyne sytuacje, w których zbiór linii faktycznie się zmienia.
 function renderAll() {
-  const lines = visibleLines();
+  const st = activeState();
   // Dopóki dla aktywnego klienta nic nie zaimportowano, nie liczymy KPI z 0 linii
   // (wyszłoby mylące "0,00% NOK") — pokazujemy neutralny stan pusty.
-  if (activeState().enrichedLines.length === 0) {
+  if (st.enrichedLines.length === 0) {
     renderEmptyDashboard();
   } else {
-    refreshDashboard(lines);
+    refreshDashboard(linesInRange(st, "dashboard"));
   }
   renderDelayedPanel({
-    lines,
-    config: activeState().config,
+    lines: linesInRange(st, "delayed"),
+    config: st.config,
     clientId: activeClientId,
     onChange: refreshDashboardAfterReview,
   });
-  updateDateFilterHint(lines.length);
+  updateDateFilterHint();
   refreshEmailButtonState();
 }
 
@@ -99,15 +126,18 @@ function refreshDashboard(lines) {
 // renderDelayedPanel, żeby nie przebudowywać całej tabeli i nie czyścić
 // niezapisanych jeszcze zmian w innych wierszach.
 function refreshDashboardAfterReview() {
-  refreshDashboard(visibleLines());
+  refreshDashboard(linesInRange(activeState(), "dashboard"));
 }
 
-function updateDateFilterHint(count) {
+// Licznik linii dla zakresu AKTYWNEJ zakładki (tego, który pokazują inputy "Od"/"Do").
+function updateDateFilterHint() {
   const hintEl = document.getElementById("dateFilterHint");
-  if (activeState().enrichedLines.length === 0) {
+  const st = activeState();
+  if (st.enrichedLines.length === 0) {
     hintEl.textContent = "";
     return;
   }
+  const count = linesInRange(st, activeTab).length;
   hintEl.textContent =
     count > 0
       ? `${count} ${count === 1 ? "linia" : "linii"} w wybranym zakresie`
@@ -131,10 +161,12 @@ function refreshImportStatus() {
 // i zapis dnia do backendu (upsertDailyResult: jeden wiersz per dzień) dotyczą jednego dnia,
 // więc przy szerszym zakresie (np. cały miesiąc) pokazywałyby mylącą, niepełną liczbę.
 // Czyścimy też status "skopiowano"/"zaktualizowano", żeby nie wprowadzał w błąd po zmianie
-// kontekstu (klient / zakres / import).
+// kontekstu (klient / zakres / import). Zapis i mail ZAWSZE dotyczą zakresu zakładki
+// Dashboard — także wtedy, gdy otwarta jest zakładka "Opóźnione linie" z szerszym zakresem.
 function refreshEmailButtonState() {
   const st = activeState();
-  const isSingleDay = isSameDay(st.dateFrom, st.dateTo);
+  const { from, to } = st.ranges.dashboard;
+  const isSingleDay = isSameDay(from, to);
   const hasData = st.enrichedLines.length > 0;
 
   const emailBtn = document.getElementById("emailBtn");
@@ -151,27 +183,34 @@ function refreshEmailButtonState() {
     emailBtn.disabled = true;
     updateBtn.disabled = true;
     const hint =
-      'Zapis dotyczy jednego dnia — zawęź zakres dat ("Od"/"Do") do jednego dnia.';
+      'Zapis dotyczy jednego dnia — zawęź zakres dat ("Od"/"Do") na zakładce Dashboard do jednego dnia.';
     emailStatusEl.textContent = hint;
     updateStatusEl.textContent = hint;
   } else {
     emailBtn.disabled = false;
     updateBtn.disabled = false;
-    emailStatusEl.textContent = "";
-    updateStatusEl.textContent = "";
+    // Na zakładce "Opóźnione linie" inputy pokazują inny zakres niż ten, który zostanie
+    // zapisany — mówimy wprost, którego dnia dotyczy zapis/mail.
+    const hint =
+      activeTab === "delayed"
+        ? `Dotyczy dnia z zakładki Dashboard: ${formatDatePl(from)}`
+        : "";
+    emailStatusEl.textContent = hint;
+    updateStatusEl.textContent = hint;
   }
 }
 
-// Przycina zapamiętany zakres dat danego klienta do zakresu jego własnych danych —
-// czysta operacja na stanie, bez dotykania DOM. Musi działać dla KAŻDEGO importowanego
-// klienta, niezależnie od tego, który jest akurat aktywną zakładką.
+// Przycina zapamiętane zakresy dat danego klienta (obu zakładek) do zakresu jego własnych
+// danych — czysta operacja na stanie, bez dotykania DOM. Musi działać dla KAŻDEGO
+// importowanego klienta, niezależnie od tego, który jest akurat aktywną zakładką.
 function clampDateRange(st) {
-  const range = adjustedDateRange(st.enrichedLines);
+  const range = expectedDateRange(st.enrichedLines);
   if (range) {
-    if (st.dateFrom < range.min || st.dateFrom > range.max)
-      st.dateFrom = range.max;
-    if (st.dateTo < range.min || st.dateTo > range.max) st.dateTo = range.max;
-    if (st.dateFrom > st.dateTo) st.dateTo = st.dateFrom;
+    for (const r of Object.values(st.ranges)) {
+      if (r.from < range.min || r.from > range.max) r.from = range.max;
+      if (r.to < range.min || r.to > range.max) r.to = range.max;
+      if (r.from > r.to) r.to = r.from;
+    }
   }
   return range;
 }
@@ -197,8 +236,9 @@ function syncDateRangeInputs(st) {
   monthBtn.disabled = false;
   fromInput.min = toInput.min = toDateInputValue(range.min);
   fromInput.max = toInput.max = toDateInputValue(range.max);
-  fromInput.value = toDateInputValue(st.dateFrom);
-  toInput.value = toDateInputValue(st.dateTo);
+  const { from, to } = activeRange(st);
+  fromInput.value = toDateInputValue(from);
+  toInput.value = toDateInputValue(to);
 }
 
 // Dopasowuje plik do klienta po numerze raportu zaszytym w nazwie pliku
@@ -235,6 +275,7 @@ async function handleFiles(fileList) {
       const rows = await parseObdCsvFile(file, config.csv);
       st.enrichedLines = enrichLines(rows, config);
       st.fileName = file.name;
+      st.ranges.delayed = defaultDelayedRange(st);
       clampDateRange(st);
 
       // Oceny (kod przyczyny/wina) żyją tylko w backendzie — patrz reviewsStore.js. Ściągamy
@@ -313,7 +354,7 @@ async function saveDayToBackend(st, dayLines, reviewsByObd) {
   const kpis = calculateKpis(dayLines, reviewsByObd, st.config);
   await upsertDailyResult({
     department: st.config.name,
-    reportDate: toDateInputValue(st.dateFrom),
+    reportDate: toDateInputValue(st.ranges.dashboard.from),
     totalLines: kpis.total,
     grossOnTimeLines: kpis.onTime,
     netOnTimeLines: kpis.onTime + kpis.sumaObdLine,
@@ -337,16 +378,16 @@ function wireEmailButton() {
     const st = activeState();
     if (st.enrichedLines.length === 0) return;
 
-    // Raport (zapis do backendu + mail) dotyczy JEDNEGO dnia — trzymamy się dateFrom, co jest
-    // bezpieczne, bo refreshEmailButtonState() blokuje ten przycisk, gdy wybrany jest zakres
-    // szerszy niż jeden dzień.
-    const dayLines = visibleLines();
+    // Raport (zapis do backendu + mail) dotyczy JEDNEGO dnia z zakładki Dashboard — trzymamy
+    // się jej "from", co jest bezpieczne, bo refreshEmailButtonState() blokuje ten przycisk,
+    // gdy zakres Dashboardu jest szerszy niż jeden dzień.
+    const dayLines = linesInRange(st, "dashboard");
     const reviewsByObd = reviewsStore.getAllReviews(activeClientId);
 
     const { subject, to, textBody, htmlBody } = buildEmailReport({
       config: st.config,
       enrichedLines: st.enrichedLines,
-      selectedDate: st.dateFrom,
+      selectedDate: st.ranges.dashboard.from,
       reviewsByObd,
     });
 
@@ -393,7 +434,7 @@ function wireUpdateButton() {
     const st = activeState();
     if (st.enrichedLines.length === 0) return;
 
-    const dayLines = visibleLines();
+    const dayLines = linesInRange(st, "dashboard");
     const reviewsByObd = reviewsStore.getAllReviews(activeClientId);
 
     btn.disabled = true;
@@ -416,12 +457,14 @@ function wireDateRangeFilter() {
   const toInput = document.getElementById("dateToInput");
   const monthBtn = document.getElementById("wholeMonthBtn");
 
+  // Wszystkie trzy kontrolki zmieniają zakres AKTYWNEJ zakładki (Dashboard / Opóźnione linie).
   fromInput.addEventListener("change", () => {
     const parsed = fromDateInputValue(fromInput.value);
     if (!parsed) return;
     const st = activeState();
-    st.dateFrom = parsed;
-    if (st.dateFrom > st.dateTo) st.dateTo = st.dateFrom;
+    const r = activeRange(st);
+    r.from = parsed;
+    if (r.from > r.to) r.to = r.from;
     syncDateRangeInputs(st);
     renderAll();
   });
@@ -430,8 +473,9 @@ function wireDateRangeFilter() {
     const parsed = fromDateInputValue(toInput.value);
     if (!parsed) return;
     const st = activeState();
-    st.dateTo = parsed;
-    if (st.dateTo < st.dateFrom) st.dateFrom = st.dateTo;
+    const r = activeRange(st);
+    r.to = parsed;
+    if (r.to < r.from) r.from = r.to;
     syncDateRangeInputs(st);
     renderAll();
   });
@@ -440,13 +484,14 @@ function wireDateRangeFilter() {
   // (przycięte do dostępnego zakresu danych — patrz clampDateRange).
   monthBtn.addEventListener("click", () => {
     const st = activeState();
-    const range = adjustedDateRange(st.enrichedLines);
+    const range = expectedDateRange(st.enrichedLines);
     if (!range) return;
-    const anchor = st.dateFrom; // miesiąc liczymy względem "Od", tak jak przed kliknięciem
+    const r = activeRange(st);
+    const anchor = r.from; // miesiąc liczymy względem "Od", tak jak przed kliknięciem
     const monthStart = startOfMonth(anchor);
     const monthEnd = endOfMonth(anchor);
-    st.dateFrom = monthStart < range.min ? range.min : monthStart;
-    st.dateTo = monthEnd > range.max ? range.max : monthEnd;
+    r.from = monthStart < range.min ? range.min : monthStart;
+    r.to = monthEnd > range.max ? range.max : monthEnd;
     syncDateRangeInputs(st);
     renderAll();
   });
@@ -547,6 +592,13 @@ function wireTabs() {
       Object.entries(views).forEach(([key, el]) => {
         el.hidden = key !== tab.dataset.tab;
       });
+      // Każda zakładka ma własny zakres dat — przestawiamy wspólne inputy "Od"/"Do" (i licznik
+      // linii pod nimi) na zakres właśnie otwartej zakładki. Obie tabele są już wyrenderowane
+      // dla swoich zakresów, więc renderAll() nie jest tu potrzebne.
+      activeTab = tab.dataset.tab;
+      syncDateRangeInputs(activeState());
+      updateDateFilterHint();
+      refreshEmailButtonState();
     });
   });
 }
