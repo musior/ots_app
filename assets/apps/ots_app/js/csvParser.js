@@ -5,7 +5,7 @@ function splitLine(line, delimiter) {
 }
 
 // Odpowiednik kroków źródłowych w Power Query: import CSV -> nagłówki -> typy -> filtr
-// na EXPECTED_SHIP_DATE <> null. Nie zajmuje się jeszcze AdjustedExpectedDate/DELAY_STATUS/region —
+// na EXPECTED_SHIP_DATE <> null. Nie zajmuje się jeszcze DELAY_STATUS/region —
 // to robi calcEngine.js na już sparsowanych wierszach.
 export async function parseObdCsvFile(file, { delimiter = ';', encoding = 'windows-1250' } = {}) {
   const buffer = await file.arrayBuffer();
@@ -29,13 +29,14 @@ export async function parseObdCsvFile(file, { delimiter = ';', encoding = 'windo
 
     row.lineId = `${row.OBD}_${row.OBD_LINE}`;
     row.expectedShipDate = parseNumericDate(row.EXPECTED_SHIP_DATE);
-    // DELAY_STATUS domyślnie porównuje się z datą załadunku (LOADING DATE), nie z
-    // PHYSICAL_SHIP_DATE — patrz calcEngine.computeDelayStatus. Nazwa kolumny ma spację
-    // (tak jak "PHYSICAL SHIP TIME"), stąd zapis przez nawias, nie przez kropkę.
-    // PHYSICAL_SHIP_DATE parsujemy też — 3ME ma wyjątek dla przewoźników DPD/MGS, gdzie
-    // to ono jest właściwym polem (patrz clients/3me.js -> selectDeliveryDate).
+    // DELAY_STATUS porównuje EXPECTED_SHIP_DATE z datą załadunku (LOADING DATE) — patrz
+    // calcEngine.computeDelayStatus. Nazwa kolumny ma spację (tak jak "PHYSICAL SHIP TIME"),
+    // stąd zapis przez nawias, nie przez kropkę. PHYSICAL_SHIP_DATE parsujemy też — 3ME ma
+    // wyjątek dla przewoźników DPD/MGS (patrz clients/3me.js -> selectDeliveryDate).
     row.loadingDate = parseNumericDate(row['LOADING DATE']);
     row.physicalShipDate = parseNumericDate(row.PHYSICAL_SHIP_DATE);
+    // RECEIVED_DATE (+ RECEIVED_TIME w surowym "HHMM") — patrz calcEngine.isReceivedAfterCutoff.
+    row.receivedDate = parseNumericDate(row.RECEIVED_DATE);
     row.confirmedDate = parseNumericDate(row.CONFIRMED_DATE);
     row.OBD_LINE = Number(row.OBD_LINE) || 0;
     row.OBD_QTY = Number(row.OBD_QTY) || 0;
