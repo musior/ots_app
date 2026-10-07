@@ -846,6 +846,20 @@ input[type="checkbox"] {
 .dl-table td.kraj {
   white-space: nowrap;
 }
+/* OBD przyjęte po dniu EXPECTED_SHIP_DATE albo w tym dniu po 17:00 (patrz
+   calcEngine.isReceivedAfterCutoff) — czerwona ramka wokół całego wiersza. Tabela ma
+   border-collapse: collapse, więc ramkę rysujemy na komórkach, nie na <tr>. */
+.dl-table tr.row--late-received td {
+  background: color-mix(in oklab, var(--critical) 8%, var(--surface-1));
+  border-top: 2px solid var(--critical);
+  border-bottom: 2px solid var(--critical);
+}
+.dl-table tr.row--late-received td:first-child {
+  border-left: 2px solid var(--critical);
+}
+.dl-table tr.row--late-received td:last-child {
+  border-right: 2px solid var(--critical);
+}
 .dl-table select.reason {
   width: 100%;
   min-width: 168px;
