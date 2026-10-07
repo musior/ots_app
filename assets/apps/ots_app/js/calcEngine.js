@@ -209,6 +209,7 @@ export function groupNeedingReviewByObd(lines) {
         obd: line.OBD,
         wmsOrder: line.WMS_ORDER,
         country: line.NAME_COUNTRY,
+        shipToCustomer: line.SHIP_TO_CUSTOMER_DATA,
         adjustedExpectedDate: line.adjustedExpectedDate,
         delayStatus: line.delayStatus,
         lineCount: 0,
@@ -222,18 +223,21 @@ export function groupNeedingReviewByObd(lines) {
   return [...map.values()];
 }
 
-// Pełny stan panelu "Opóźnione linie" (kraj, WMS Order, OBD, liczba linii, status algorytmu,
-// kod przyczyny, wina, kto/kiedy ocenił) — jeden wpis na OBD, łącznie z jeszcze NIE ocenionymi
-// (reasonCode/faultOwner = null). Używane przy zapisie dnia do backendu (patrz
+// Pełny stan panelu "Opóźnione linie" (data, kraj, odbiorca, WMS Order, OBD, liczba linii,
+// status algorytmu, kod przyczyny, wina, kto/kiedy ocenił) — jeden wpis na OBD, łącznie z jeszcze
+// NIE ocenionymi (reasonCode/faultOwner = null). Używane przy zapisie dnia do backendu (patrz
 // js/backend/otsDailyApi.js), żeby dało się później odtworzyć panel i wynik Net z danych
 // zapisanych po stronie serwera, nie tylko z localStorage tej jednej przeglądarki.
+// adjustedExpectedDate leci jako "YYYY-MM-DD" (ten sam format co report_date).
 export function buildDelayedLinesSnapshot(lines, reviewsByObd) {
   return groupNeedingReviewByObd(lines).map((group) => {
     const review = reviewsByObd[group.obd];
     return {
       obd: group.obd,
       wmsOrder: group.wmsOrder,
+      adjustedExpectedDate: group.adjustedExpectedDate ? toDateInputValue(group.adjustedExpectedDate) : null,
       country: group.country,
+      shipToCustomer: group.shipToCustomer || null,
       lineCount: group.lineCount,
       algorithmStatus: group.delayStatus,
       reasonCode: review?.reasonCode ?? null,

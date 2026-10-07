@@ -8,6 +8,13 @@ let currentConfig = null;
 let currentClientId = null;
 let onChangeCallback = null;
 
+// Nazwa odbiorcy (SHIP_TO_CUSTOMER_DATA) to dowolny tekst z pliku — może zawierać & albo
+// cudzysłowy, więc escapujemy ją przed wstawieniem do innerHTML.
+function escapeHtml(value) {
+  const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  return String(value ?? '').replace(/[&<>"']/g, (c) => map[c]);
+}
+
 function statusLabel(delayStatus) {
   if (delayStatus === 'DELAY') return { text: 'Opóźnienie', cls: 'bad' };
   return { text: 'Zamówienie potwierdzone', cls: 'warn' };
@@ -82,7 +89,7 @@ function buildRow(group) {
   tr.dataset.obd = group.obd;
   tr.dataset.kraj = group.country || '';
   tr.dataset.status = saved ? 'done' : 'pending';
-  tr.dataset.search = `${group.wmsOrder || ''} ${group.obd || ''}`.toLowerCase();
+  tr.dataset.search = `${group.wmsOrder || ''} ${group.obd || ''} ${group.shipToCustomer || ''}`.toLowerCase();
 
   const status = statusLabel(group.delayStatus);
 
@@ -90,6 +97,7 @@ function buildRow(group) {
     <td><input type="checkbox" class="row-select" /></td>
     <td class="num">${formatDatePl(group.adjustedExpectedDate)}</td>
     <td class="kraj">${group.country || '—'}</td>
+    <td>${escapeHtml(group.shipToCustomer) || '—'}</td>
     <td class="num">${group.wmsOrder || '—'}</td>
     <td class="num">${group.obd || '—'}</td>
     <td class="num">${group.lineCount}</td>
