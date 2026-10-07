@@ -1,4 +1,4 @@
-import { groupNeedingReviewByObd } from '../calcEngine.js';
+import { groupNeedingReviewByObd, STATUS_DELAY, STATUS_NO_LOADING_DATE } from '../calcEngine.js';
 import * as reviewsStore from '../reviewsStore.js';
 import { formatDatePl } from '../dateUtils.js';
 import { currentUserFullName } from '../xcloudUser.js';
@@ -16,8 +16,8 @@ function escapeHtml(value) {
 }
 
 function statusLabel(delayStatus) {
-  if (delayStatus === 'DELAY') return { text: 'Opóźnienie', cls: 'bad' };
-  return { text: 'Zamówienie potwierdzone', cls: 'warn' };
+  if (delayStatus === STATUS_DELAY) return { text: 'Opóźniona', cls: 'bad' };
+  return { text: STATUS_NO_LOADING_DATE, cls: 'warn' };
 }
 
 function reasonOptionsHtml(selected) {
@@ -90,12 +90,18 @@ function buildRow(group) {
   tr.dataset.kraj = group.country || '';
   tr.dataset.status = saved ? 'done' : 'pending';
   tr.dataset.search = `${group.wmsOrder || ''} ${group.obd || ''} ${group.shipToCustomer || ''}`.toLowerCase();
+  // Zamówienie przyjęte po dniu EXPECTED_SHIP_DATE albo w tym dniu po 17:00 — patrz
+  // calcEngine.isReceivedAfterCutoff. Czerwona ramka wiersza + podpowiedź po najechaniu.
+  if (group.receivedAfterCutoff) {
+    tr.classList.add('row--late-received');
+    tr.title = 'Data w kolumnie RECEIVED_DATE jest późniejsza lub równa dacie w kolumnie EXPECTED_SHIP_DATE';
+  }
 
   const status = statusLabel(group.delayStatus);
 
   tr.innerHTML = `
     <td><input type="checkbox" class="row-select" /></td>
-    <td class="num">${formatDatePl(group.adjustedExpectedDate)}</td>
+    <td class="num">${formatDatePl(group.expectedShipDate)}</td>
     <td class="kraj">${group.country || '—'}</td>
     <td>${escapeHtml(group.shipToCustomer) || '—'}</td>
     <td class="num">${group.wmsOrder || '—'}</td>
